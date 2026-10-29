@@ -1,0 +1,55 @@
+# TORO-Train の設定
+# 速さの単位は「ブロック/tick」(1 ブロック/tick = 72 km/h)。
+
+render:
+  # Display エンティティの移動と回転を滑らかにする tick 数 (0 - 10)
+  interpolation-ticks: 2
+  # Display エンティティが見える距離の倍率 (1.0 で 64 ブロック)
+  view-range: 2.0
+  # 座席のエンティティを、座る人の足の位置からどれだけ上に置くか
+  seat-entity-offset: 0.6
+  # MarumaSign の看板を、アイテムのディスプレイで描くときに 180 度回して合わせる
+  # (MarumaSign の看板の絵が裏返って見えるときだけ false にする)
+  marumasign-item-flip: true
+  # 1 両に描くブロック (Display エンティティ) の上限
+  max-model-blocks: 8192
+
+train:
+  # 車両の間の隙間 (ブロック)
+  cart-gap: 0.3
+  # 新しい列車の最高速度
+  default-speed-limit: 0.4
+  # 設定できる最高速度の上限
+  max-speed: 3.0
+  # 坂で受ける重力の強さ
+  slope-gravity: 0.012
+  # トロッコのアイテムを線路に置いたとき、TORO-Train の列車にする
+  replace-minecart: true
+  # keep-chunks-loaded の列車が、まわりに読み込んだままにするチャンクの半径
+  keep-chunks-radius: 2
+  powered-rail:
+    # 動力の入ったパワードレールでの加速
+    boost: 0.02
+    # パワードレールで加速する上限の速さ
+    max-speed: 0.4
+    # 動力の入っていないパワードレールでのブレーキ
+    brake: 0.03
+
+signs:
+  # 駅の看板の停車時間を書かなかったときの tick 数
+  station-default-delay: 100
+
+route:
+  # 行き先の経路探索でたどる最長の距離 (ブロック)
+  max-distance: 5000
+
+blocks:
+  # /tt blocks capture と convert で選べる範囲の最大のブロック数
+  max-volume: 65536
+
+storage:
+  # 列車を自動で保存する間隔 (秒)。0 で自動保存しない
+  autosave-seconds: 300
+
+# 看板が働いたときなどにログを出す
+debug: false

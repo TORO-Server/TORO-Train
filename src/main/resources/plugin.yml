@@ -1,0 +1,45 @@
+name: TORO-Train
+version: '${version}'
+main: net.torosaba.train.TOROTrain
+api-version: '26.3'
+description: Display エンティティで描く列車。線路と看板で駅・分岐・発車を制御し、ワールドのブロックを列車にできる
+authors: [ marumasa ]
+website: https://torosaba.net
+
+commands:
+  toro-train:
+    description: TORO-Train の列車・線路・モデルの操作
+    aliases: [ tt, torotrain ]
+    usage: /<command> help
+    permission: torotrain.command
+
+permissions:
+  torotrain.command:
+    description: /tt を使う (各サブコマンドは別の権限も見る)
+    default: true
+  torotrain.ride:
+    description: 列車に乗る
+    default: true
+  torotrain.drive:
+    description: 運転席でマスコン (W/S) を操作する
+    default: true
+  torotrain.place:
+    description: トロッコを線路に置いて列車にする
+    default: true
+  torotrain.create:
+    description: /tt create と /tt spawn で列車を出す
+    default: op
+  torotrain.destroy:
+    description: しゃがんで叩いて列車を消す (自分の列車だけ。admin はすべて)
+    default: true
+  torotrain.sign.*:
+    description: すべての種類の看板を置く
+    default: op
+  torotrain.admin:
+    description: すべての列車の操作、ブロックの列車、自由な線路、再読み込み
+    default: op
+    children:
+      torotrain.command: true
+      torotrain.create: true
+      torotrain.destroy: true
+      torotrain.sign.*: true
