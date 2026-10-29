@@ -27,6 +27,16 @@ train:
   replace-minecart: true
   # keep-chunks-loaded の列車が、まわりに読み込んだままにするチャンクの半径
   keep-chunks-radius: 2
+  # 新しい列車が、線路の終わりで止まらずに線路から外れて進むか (列車ごとに derail の設定で変えられる)
+  derail: true
+  # 線路から外れた列車の動き
+  off-rail:
+    # 重力 (ブロック/tick²)
+    gravity: 0.04
+    # 1 tick ごとに残る速さの割合 (空中も地面も)
+    air-drag: 0.95
+    # 地面に着いているとき、1 tick ごとに残る横の速さの割合
+    ground-friction: 0.5
   powered-rail:
     # 動力の入ったパワードレールでの加速
     boost: 0.02

@@ -3,7 +3,7 @@ package net.torosaba.train.listener
 import io.papermc.paper.event.player.PrePlayerAttackEntityEvent
 import net.torosaba.train.TOROTrain
 import net.torosaba.train.model.DefaultCartModel
-import net.torosaba.train.track.RailSegment
+import net.torosaba.train.track.TrackBlocks
 import net.torosaba.train.util.Text
 import org.bukkit.Material
 import org.bukkit.entity.Interaction
@@ -120,7 +120,7 @@ class TrainListener(private val plugin: TOROTrain) : Listener {
         if (event.action == Action.RIGHT_CLICK_BLOCK && item?.type == Material.MINECART &&
             plugin.config.getBoolean("train.replace-minecart", true) && player.hasPermission("torotrain.place")
         ) {
-            if (RailSegment.of(block) == null) return
+            if (!TrackBlocks.isTrack(block)) return
             event.isCancelled = true
             val model = DefaultCartModel()
             val look = player.location.direction.toVector3d()

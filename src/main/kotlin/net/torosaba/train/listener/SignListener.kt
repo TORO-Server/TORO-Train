@@ -6,6 +6,7 @@ import net.torosaba.train.signs.DestinationSign
 import net.torosaba.train.signs.SignTypes
 import net.torosaba.train.signs.Station
 import net.torosaba.train.signs.Teleport
+import net.torosaba.train.track.TrackBlocks
 import net.torosaba.train.util.BlockKey
 import net.torosaba.train.util.Text
 import org.bukkit.Tag
@@ -75,14 +76,14 @@ class SignListener(private val plugin: TOROTrain) : Listener {
             plugin.signIndex.railFor(block)?.let { plugin.places.removeRail(BlockKey.of(it)) }
             lastPower.remove(BlockKey.of(block))
             plugin.router.clear()
-        } else if (Tag.RAILS.isTagged(block.type)) {
+        } else if (TrackBlocks.isTrack(block)) {
             plugin.router.clear()
         }
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     fun onPlace(event: BlockPlaceEvent) {
-        if (Tag.RAILS.isTagged(event.block.type)) plugin.router.clear()
+        if (TrackBlocks.isTrack(event.block)) plugin.router.clear()
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)

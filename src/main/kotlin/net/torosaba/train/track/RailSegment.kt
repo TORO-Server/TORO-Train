@@ -2,6 +2,7 @@ package net.torosaba.train.track
 
 import net.torosaba.train.util.BlockKey
 import org.bukkit.Material
+import org.bukkit.Tag
 import org.bukkit.World
 import org.bukkit.block.Block
 import org.bukkit.block.BlockFace
@@ -15,6 +16,9 @@ import kotlin.math.sin
 /**
  * バニラのレール 1 ブロック分の区間。
  * 端はブロックの辺の中央にあり、隣のレールの端と同じ座標になる。曲線のレールは半径 0.5 の円弧にする。
+ *
+ * 感圧板もまっすぐなレールとして走れる。向きは隣の線路で決まり、南北だけに線路があれば南北、
+ * 東西だけなら東西、両方ある・どちらもないなら十字路で、入ってきた向きのまままっすぐ抜ける。
  */
 class RailSegment private constructor(
     override val world: World,
@@ -23,7 +27,7 @@ class RailSegment private constructor(
     val material: Material,
     /** パワードレールなどが動力を受けているか */
     val powered: Boolean,
-) : TrackSegment {
+) : BlockTrackSegment {
     private val a: Vector3d
     private val b: Vector3d
     // 曲線のときの円の中心 (ブロックの角)。直線なら null
@@ -44,11 +48,13 @@ class RailSegment private constructor(
         length = if (corner != null) PI / 4 else a.distance(b)
     }
 
-    val key: BlockKey get() = BlockKey(world.uid, x, y, z)
+    override val key: BlockKey get() = BlockKey(world.uid, x, y, z)
     val isCurve: Boolean get() = corner != null
     val isSlope: Boolean get() = shape.name.startsWith("ASCENDING")
+    val isPlate: Boolean get() = Tag.PRESSURE_PLATES.isTagged(material)
 
-    override val id: String get() = "r:$x,$y,$z"
+    // 感圧板の十字路は形が 2 つあるので、形も覚える
+    override val id: String get() = if (isPlate) "r:$x,$y,$z/${shape.name}" else "r:$x,$y,$z"
 
     private fun port(face: BlockFace, high: Boolean) =
         Vector3d(x + 0.5 + face.modX * 0.5, y + HEIGHT + if (high) 1.0 else 0.0, z + 0.5 + face.modZ * 0.5)
@@ -125,17 +131,49 @@ class RailSegment private constructor(
             return of(world.getBlockAt(x, y, z))
         }
 
-        /** shape を渡すと、今の形ではなくその形だったときの区間を作る (分岐の経路探索に使う) */
+        /**
+         * shape を渡すと、今の形ではなくその形だったときの区間を作る (分岐の経路探索に使う)。
+         * 感圧板は取れる形のうち shape (なければ最初の形) にする
+         */
         fun of(block: Block, shape: Rail.Shape? = null): RailSegment? {
-            val data = block.blockData as? Rail ?: return null
-            val powered = (data as? Powerable)?.isPowered ?: false
-            return RailSegment(block.world, block.x, block.y, block.z, shape ?: data.shape, block.type, powered)
+            val data = block.blockData
+            if (data is Rail) {
+                val powered = (data as? Powerable)?.isPowered ?: false
+                return RailSegment(block.world, block.x, block.y, block.z, shape ?: data.shape, block.type, powered)
+            }
+            if (!Tag.PRESSURE_PLATES.isTagged(block.type)) return null
+            val shapes = plateShapes(block)
+            val chosen = shape ?: shapes.first()
+            if (chosen !in shapes) return null
+            return RailSegment(block.world, block.x, block.y, block.z, chosen, block.type, false)
+        }
+
+        /** 感圧板の区間。十字路なら南北と東西の 2 つ */
+        fun platesAt(block: Block): List<RailSegment> =
+            if (!Tag.PRESSURE_PLATES.isTagged(block.type)) emptyList()
+            else plateShapes(block).map { RailSegment(block.world, block.x, block.y, block.z, it, block.type, false) }
+
+        // 隣 (同じ高さか 1 つ下) に線路があるか
+        private fun trackBeside(block: Block, face: BlockFace): Boolean {
+            val side = block.getRelative(face)
+            return TrackBlocks.isTrack(side) || TrackBlocks.isTrack(side.getRelative(BlockFace.DOWN))
+        }
+
+        private fun plateShapes(block: Block): List<Rail.Shape> {
+            val ns = trackBeside(block, BlockFace.NORTH) || trackBeside(block, BlockFace.SOUTH)
+            val ew = trackBeside(block, BlockFace.EAST) || trackBeside(block, BlockFace.WEST)
+            return when {
+                ns && !ew -> listOf(Rail.Shape.NORTH_SOUTH)
+                ew && !ns -> listOf(Rail.Shape.EAST_WEST)
+                else -> listOf(Rail.Shape.NORTH_SOUTH, Rail.Shape.EAST_WEST)
+            }
         }
 
         /** そのレールのブロックが取れる平らな形のうち、face を端に持つもの */
         fun shapesFrom(block: Block, face: BlockFace): List<Rail.Shape> {
-            val data = block.blockData as? Rail ?: return emptyList()
-            return data.shapes.filter { shape ->
+            val shapes = (block.blockData as? Rail)?.shapes
+                ?: if (Tag.PRESSURE_PLATES.isTagged(block.type)) plateShapes(block).toSet() else return emptyList()
+            return shapes.filter { shape ->
                 val e = ENDS[shape] ?: return@filter false
                 !e.highA && !e.highB && (e.faceA == face || e.faceB == face)
             }

@@ -28,6 +28,17 @@ interface TrackSegment {
 
     /** 区間の中にある、行き先の名前 (自由な線路のノードの名前) */
     fun names(): Collection<String> = emptyList()
+
+    /**
+     * 車体の上になる向き。ハシゴのように真上・真下に進む区間では、進む向きだけでは車体の向きが決まらないので使う。
+     * null なら進む向きから決める
+     */
+    fun up(s: Double): Vector3d? = null
+}
+
+/** 1 つのブロックにある線路の区間 (レール、感圧板、ハシゴ)。看板や占めているブロックはこのブロックで調べる */
+interface BlockTrackSegment : TrackSegment {
+    val key: BlockKey
 }
 
 /** 向きを持った区間。reversed なら終点から始点に向かって進む */
@@ -42,6 +53,8 @@ class DirectedSegment(val segment: TrackSegment, val reversed: Boolean) {
         segment.tangent(map(d), out).also { if (reversed) it.negate() }
 
     fun roll(d: Double): Double = segment.roll(map(d)).let { if (reversed) -it else it }
+
+    fun up(d: Double): Vector3d? = segment.up(map(d))
 
     fun start(out: Vector3d = Vector3d()) = point(0.0, out)
     fun end(out: Vector3d = Vector3d()) = point(length, out)
@@ -64,4 +77,5 @@ class TrackPos(val segment: DirectedSegment, val offset: Double) {
     fun point(out: Vector3d = Vector3d()) = segment.point(offset, out)
     fun tangent(out: Vector3d = Vector3d()) = segment.tangent(offset, out)
     fun roll() = segment.roll(offset)
+    fun up() = segment.up(offset)
 }

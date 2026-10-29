@@ -6,6 +6,7 @@ import net.torosaba.train.model.DefaultCartModel
 import net.torosaba.train.model.ItemCartModel
 import net.torosaba.train.signs.SignTypes
 import net.torosaba.train.track.RailSegment
+import net.torosaba.train.track.TrackBlocks
 import net.torosaba.train.track.TrackNode
 import net.torosaba.train.train.Cart
 import net.torosaba.train.train.LaunchAction
@@ -223,8 +224,8 @@ class TrainCommand(private val plugin: TOROTrain) : TabExecutor {
         lines.forEach { sender.sendMessage(Text.color("&7 /tt &f$it")) }
     }
 
-    private fun lookedRail(p: Player) = p.getTargetBlockExact(8)?.takeIf { RailSegment.of(it) != null || it.type.name.endsWith("RAIL") }
-        ?: p.location.block.takeIf { RailSegment.of(it) != null }
+    private fun lookedRail(p: Player) = p.getTargetBlockExact(8)?.takeIf { TrackBlocks.isTrack(it) }
+        ?: p.location.block.takeIf { TrackBlocks.isTrack(it) }
         ?: fail("線路を見ながら実行してください")
 
     /**
@@ -298,8 +299,11 @@ class TrainCommand(private val plugin: TOROTrain) : TabExecutor {
 
     private fun info(sender: CommandSender, t: Train) {
         msg(sender, "&e${t.displayName()} &7(${t.name})")
+        val head = t.path.locate(0.0).point()
         val lines = listOf(
             "車両: ${t.carts.size} 両 / 長さ ${String.format(Locale.ROOT, "%.1f", t.length())} ブロック",
+            "先頭: ${String.format(Locale.ROOT, "%.2f, %.2f, %.2f", head.x, head.y, head.z)} (${t.path.head.segment})" +
+                if (t.derailed) " &c線路から外れている" else "",
             "速さ: ${Text.speed(t.speed)} / 最高 ${Text.speed(t.props.speedLimit)}",
             "動作: ${t.action?.describe() ?: "なし"}${t.blockedBy?.let { " (止まっている理由: $it)" } ?: ""}",
             "行き先: ${t.props.destination ?: "なし"}  経路: ${t.props.route.joinToString(" → ").ifEmpty { "なし" }}",

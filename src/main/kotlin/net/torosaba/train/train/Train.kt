@@ -1,7 +1,9 @@
 package net.torosaba.train.train
 
-import net.torosaba.train.track.RailSegment
+import net.torosaba.train.track.BlockTrackSegment
+import net.torosaba.train.track.FreeSegment
 import net.torosaba.train.track.TrackPath
+import net.torosaba.train.track.TrackSegment
 import net.torosaba.train.util.BlockKey
 import org.bukkit.World
 import org.bukkit.entity.Player
@@ -45,6 +47,17 @@ class Train(val id: UUID, var name: String, var path: TrackPath, val props: Trai
 
     /** 列車が止まっている理由 (情報の表示用) */
     var blockedBy: String? = null
+
+    /** 線路から外れて動いているときの速度 (ブロック/tick)。線路の上なら null */
+    var freeVelocity: Vector3d? = null
+
+    /** 線路から外れてからの tick 数 */
+    var freeTicks = 0
+
+    /** 外れたときにいた区間。外れてすぐにまた乗らないように使う */
+    var derailedFrom: TrackSegment? = null
+
+    val derailed: Boolean get() = freeVelocity != null
 
     /** 列車全体が占めているブロック */
     val occupied = HashSet<BlockKey>()
@@ -93,18 +106,39 @@ class Train(val id: UUID, var name: String, var path: TrackPath, val props: Trai
             val inset = min(1.0, cart.length * 0.2)
             val bf = front + inset
             val br = front + cart.length - inset
-            path.locate(bf).point(pf)
-            path.locate(br).point(pr)
+            val posF = path.locate(bf)
+            val posR = path.locate(br)
+            posF.point(pf)
+            posR.point(pr)
             cart.position.set(pf).add(pr).mul(0.5)
             val forward = Vector3d(pf).sub(pr)
+            if (posF.segment.segment is FreeSegment || posR.segment.segment is FreeSegment) {
+                // 線路から外れた車両は、落ちていても水平のまま、車両の前の端の高さに置く。
+                // まっすぐ落ちたときは横の向きがないので、前の向きのままにする
+                cart.position.y = path.locate(front).point().y
+                forward.y = 0.0
+                if (forward.lengthSquared() < 1e-6) {
+                    cart.poseValid = true
+                    continue
+                }
+            }
             if (forward.lengthSquared() < 1e-6) path.locate(front + cart.length / 2).tangent(forward)
             forward.normalize()
-            var roll = path.locate(front + cart.length / 2).roll()
+            val mid = path.locate(front + cart.length / 2)
+            var roll = mid.roll()
             if (cart.flipped) {
                 forward.negate()
                 roll = -roll
             }
-            val yaw = atan2(forward.x, forward.z)
+            // 真上・真下を向くと進む向きから左右の向きが決まらないので、線路の「上」の向きから決める。
+            // 上る車体の上は (0, 0, -1) を、下る車体の上は (0, 0, 1) を Y 軸で回した向きになる
+            val up = mid.up()
+            val yaw = if (up != null && forward.x * forward.x + forward.z * forward.z < 1e-6) {
+                val sign = if (forward.y > 0) -1.0 else 1.0
+                atan2(sign * up.x, sign * up.z)
+            } else {
+                atan2(forward.x, forward.z)
+            }
             val pitch = -asin(forward.y.coerceIn(-1.0, 1.0))
             cart.rotation.identity()
                 .rotateY(yaw.toFloat())
@@ -122,8 +156,8 @@ class Train(val id: UUID, var name: String, var path: TrackPath, val props: Trai
         var start = -path.headOffset
         for (i in path.segments.indices.reversed()) {
             val seg = path.segments[i]
-            val rail = seg.segment as? RailSegment
-            if (rail != null && rail.x == key.x && rail.y == key.y && rail.z == key.z) return start + seg.length / 2
+            val k = (seg.segment as? BlockTrackSegment)?.key
+            if (k != null && k.x == key.x && k.y == key.y && k.z == key.z) return start + seg.length / 2
             start -= if (i > 0) path.segments[i - 1].length else 0.0
         }
         return null

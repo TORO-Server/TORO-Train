@@ -23,6 +23,12 @@ class Settings(c: FileConfiguration) {
     val poweredRailMaxSpeed = c.getDouble("train.powered-rail.max-speed", 0.4)
     val poweredRailBrake = c.getDouble("train.powered-rail.brake", 0.03)
     val chunkRadius = c.getInt("train.keep-chunks-radius", 2)
+    /** 新しい列車が、線路の終わりで線路から外れて進むか */
+    val derail = c.getBoolean("train.derail", true)
+    /** 線路から外れた列車の重力 (ブロック/tick²) と、空中・地面で 1 tick ごとに残る速さの割合 */
+    val freeGravity = c.getDouble("train.off-rail.gravity", 0.04)
+    val freeAirDrag = c.getDouble("train.off-rail.air-drag", 0.95)
+    val freeGroundFriction = c.getDouble("train.off-rail.ground-friction", 0.5)
 
     val stationDelayTicks = c.getInt("signs.station-default-delay", 100)
     val routeSearchDistance = c.getDouble("route.max-distance", 5000.0)

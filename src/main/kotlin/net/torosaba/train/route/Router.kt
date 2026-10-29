@@ -2,6 +2,7 @@ package net.torosaba.train.route
 
 import net.torosaba.train.TOROTrain
 import net.torosaba.train.signs.ActionSign
+import net.torosaba.train.track.BlockTrackSegment
 import net.torosaba.train.track.DirectedSegment
 import net.torosaba.train.track.RailSegment
 import net.torosaba.train.train.Train
@@ -30,9 +31,9 @@ class Router(private val plugin: TOROTrain) {
      * (コマンドや WorldEdit で置かれた看板は、置いたときに名前を覚えられないので)
      */
     private fun reaches(seg: DirectedSegment, destination: String): Boolean {
-        val rail = seg.segment as? RailSegment
+        val track = seg.segment as? BlockTrackSegment
             ?: return seg.segment.names().any { it.equals(destination, ignoreCase = true) }
-        val key = rail.key
+        val key = track.key
         if (plugin.places.isDestination(destination, key)) return true
         for (block in plugin.signIndex.signsFor(key)) {
             val sign = ActionSign.parse(block) ?: continue

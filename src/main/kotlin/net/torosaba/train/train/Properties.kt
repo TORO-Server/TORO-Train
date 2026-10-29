@@ -25,6 +25,8 @@ class TrainProperties {
     var keepChunksLoaded = false
     /** 乗った人がマスコン (W/S) で運転できるか */
     var manualControl = true
+    /** 線路の終わりで止まらずに、線路から外れて進むか (外れると重力で落ち、地面を滑り、線路に落ちればまた乗る) */
+    var derail = true
     /** 誰でも乗れるか */
     var allowEnter = true
     /** 降りられるか */
@@ -56,6 +58,7 @@ class TrainProperties {
         s.set("coupling", coupling)
         s.set("keep-chunks-loaded", keepChunksLoaded)
         s.set("manual-control", manualControl)
+        s.set("derail", derail)
         s.set("allow-enter", allowEnter)
         s.set("allow-exit", allowExit)
         s.set("invincible", invincible)
@@ -76,6 +79,7 @@ class TrainProperties {
         coupling = s.getBoolean("coupling", coupling)
         keepChunksLoaded = s.getBoolean("keep-chunks-loaded", keepChunksLoaded)
         manualControl = s.getBoolean("manual-control", manualControl)
+        derail = s.getBoolean("derail", derail)
         allowEnter = s.getBoolean("allow-enter", allowEnter)
         allowExit = s.getBoolean("allow-exit", allowExit)
         invincible = s.getBoolean("invincible", invincible)
@@ -137,6 +141,7 @@ object PropertyKeys {
         trainBool("keepchunksloaded", "keep-chunks-loaded", "chunks") { it::keepChunksLoaded },
         trainBool("manualcontrol", "manual", "mascon") { it::manualControl },
         trainBool("invincible") { it::invincible },
+        trainBool("derail", "offrail", "leavetrack") { it::derail },
         Key("allowenter", listOf("enter", "playerenter"), true, { t, c -> (c?.props?.allowEnter ?: t.props.allowEnter).toString() }, { t, c, v ->
             val b = bool(v) ?: return@Key false
             if (c != null) c.props.allowEnter = b else t.props.allowEnter = b

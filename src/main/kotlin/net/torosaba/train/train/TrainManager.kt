@@ -13,8 +13,10 @@ import net.torosaba.train.signs.SignTypes
 import net.torosaba.train.signs.Switcher
 import net.torosaba.train.track.Chooser
 import net.torosaba.train.track.DirectedSegment
+import net.torosaba.train.track.FreeSegment
 import net.torosaba.train.track.Next
 import net.torosaba.train.track.RailSegment
+import net.torosaba.train.track.TrackBlocks
 import net.torosaba.train.track.TrackPath
 import net.torosaba.train.track.TrackSegment
 import net.torosaba.train.util.BlockKey
@@ -24,6 +26,9 @@ import org.bukkit.Material
 import org.bukkit.World
 import org.bukkit.block.Block
 import org.bukkit.block.BlockFace
+import org.bukkit.Tag
+import org.bukkit.block.data.AnaloguePowerable
+import org.bukkit.block.data.Powerable
 import org.bukkit.block.data.type.RedstoneRail
 import org.bukkit.configuration.ConfigurationSection
 import org.bukkit.configuration.file.YamlConfiguration
@@ -105,6 +110,10 @@ class TrainManager(private val plugin: TOROTrain) {
             return
         }
         train.blockedBy = null
+        if (train.derailed) {
+            freeStep(train)
+            return
+        }
 
         // 1. 運転
         val driver = driverOf(train)
@@ -163,7 +172,15 @@ class TrainManager(private val plugin: TOROTrain) {
         val chooser = chooserFor(train)
         val (moved, stop) = train.path.advance(train.speed) { seg -> graph.next(seg, chooser, p.keepChunksLoaded) }
         when (stop) {
-            Next.End -> {
+            Next.End -> if (p.derail && train.speed > 1e-3) {
+                // 線路から外れて、そのままの勢いで進む
+                train.freeVelocity = train.headTangent().mul(train.speed)
+                train.freeTicks = 0
+                train.derailedFrom = train.path.head.segment
+                train.action = null
+                train.resumeSpeed = 0.0
+                train.notch = 0
+            } else {
                 train.speed = 0.0
                 train.resumeSpeed = 0.0
                 train.blockedBy = "線路の終わり"
@@ -178,6 +195,117 @@ class TrainManager(private val plugin: TOROTrain) {
 
         // 7. 占めているブロックと看板
         updateOccupancy(train, moved)
+    }
+
+    // ---------- 線路から外れた列車 ----------
+
+    /**
+     * 線路から外れた列車を 1 tick 動かす。先頭は重力で落ち、ブロックに当たると止まり、地面では滑って遅くなる。
+     * 線路 (レール・感圧板・ハシゴ・自由な線路) の近くを通れば、その線路に乗る。後ろの車両は先頭が動いた道をたどる。
+     */
+    private fun freeStep(train: Train) {
+        val v = train.freeVelocity ?: return
+        val world = train.world
+        train.freeTicks++
+        train.action = null
+        train.resumeSpeed = 0.0
+        train.notch = 0
+        val start = train.path.locate(0.0).point()
+
+        val onGround = solidTop(world, start.x, start.y - 0.05, start.z) != null
+        if (onGround) {
+            v.x *= settings.freeGroundFriction
+            v.z *= settings.freeGroundFriction
+            if (v.y < 0) v.y = 0.0
+        } else {
+            v.y -= settings.freeGravity
+        }
+        v.mul(settings.freeAirDrag)
+        if (onGround && v.lengthSquared() < 1e-5) v.zero()
+
+        // 少しずつ動かして、ブロックに当たる軸の速さを消す。線路に近づいたら乗る
+        val cur = Vector3d(start)
+        val steps = max(1, kotlin.math.ceil(v.length() / 0.25).toInt())
+        var landed: net.torosaba.train.track.TrackPos? = null
+        val recent = train.derailedFrom.takeIf { train.freeTicks < 10 }
+        for (i in 0 until steps) {
+            val stepY = v.y / steps
+            if (stepY != 0.0) {
+                val top = solidTop(world, cur.x, cur.y + stepY, cur.z)
+                if (top != null) {
+                    if (stepY < 0) cur.y = top + 1e-3
+                    v.y = 0.0
+                } else {
+                    cur.y += stepY
+                }
+            }
+            val stepX = v.x / steps
+            if (stepX != 0.0) {
+                if (solidTop(world, cur.x + stepX, cur.y, cur.z) != null) v.x = 0.0 else cur.x += stepX
+            }
+            val stepZ = v.z / steps
+            if (stepZ != 0.0) {
+                if (solidTop(world, cur.x, cur.y, cur.z + stepZ) != null) v.z = 0.0 else cur.z += stepZ
+            }
+            if (!world.isChunkLoaded(kotlin.math.floor(cur.x).toInt() shr 4, kotlin.math.floor(cur.z).toInt() shr 4)) {
+                v.zero()
+                train.blockedBy = "読み込まれていない場所"
+                break
+            }
+            if (v.lengthSquared() > 0) {
+                landed = graph.nearest(world, cur, 0.45) { it == recent || it is FreeSegment }
+                if (landed != null) break
+            }
+        }
+        // 止まったときに線路のそばにいれば (線路の終わりの壁に当たったときなど)、その線路に戻る
+        if (landed == null && v.lengthSquared() == 0.0) landed = graph.nearest(world, cur, 0.45) { it is FreeSegment }
+
+        val path = train.path
+        val moved: Double
+        if (landed != null) {
+            // 線路に乗る。速度のうち線路に沿った分だけが残る
+            val tangent = landed.tangent()
+            val along = v.dot(tangent)
+            val forward = (if (v.lengthSquared() > 0) Vector3d(v) else train.headTangent()).dot(tangent) >= 0
+            val seg = if (forward) landed.segment else landed.segment.flip()
+            val offset = if (forward) landed.offset else landed.segment.length - landed.offset
+            val onTrack = landed.point()
+            val bridge = FreeSegment(world, start, onTrack)
+            if (bridge.length > 1e-6) path.segments += DirectedSegment(bridge, false)
+            path.segments += seg
+            path.headOffset = offset
+            moved = bridge.length
+            train.speed = kotlin.math.abs(along)
+            train.freeVelocity = null
+            train.derailedFrom = null
+            plugin.debug { "${train.name} が線路 ${seg} に乗りました" }
+        } else {
+            moved = start.distance(cur)
+            if (moved > 1e-6) {
+                path.segments += DirectedSegment(FreeSegment(world, start, Vector3d(cur)), false)
+                path.headOffset = moved
+            }
+            train.speed = v.length()
+            if (train.blockedBy == null) train.blockedBy = if (train.speed < 1e-4) "線路の外で止まっている" else "線路から外れている"
+        }
+        train.lastMoved = moved
+        path.trim(train.length() + 4)
+        train.computePoses()
+        updateOccupancy(train, moved)
+    }
+
+    /** 点がブロックの当たり判定の中にあれば、その当たり判定の上面の高さ */
+    private fun solidTop(world: World, x: Double, y: Double, z: Double): Double? {
+        val bx = kotlin.math.floor(x).toInt()
+        val by = kotlin.math.floor(y).toInt()
+        val bz = kotlin.math.floor(z).toInt()
+        if (!world.isChunkLoaded(bx shr 4, bz shr 4)) return null
+        val block = world.getBlockAt(bx, by, bz)
+        if (!block.type.isCollidable) return null
+        for (box in block.collisionShape.boundingBoxes) {
+            if (box.contains(x - bx, y - by, z - bz)) return by + box.maxY
+        }
+        return null
     }
 
     private fun slope(train: Train): Double {
@@ -355,15 +483,31 @@ class TrainManager(private val plugin: TOROTrain) {
         }
     }
 
-    // バニラのディテクターレールを、列車がいるあいだ入れる
+    /**
+     * バニラのディテクターレールと感圧板を、列車がいるあいだ入れる。
+     * 感圧板はトロッコが押せるもの (木の感圧板と重量感圧板) だけで、石の感圧板は生き物にしか反応しないので押さない
+     */
     private fun detectorRail(key: BlockKey, on: Boolean) {
         val block = key.blockIfLoaded() ?: return
-        if (block.type != Material.DETECTOR_RAIL) return
-        val data = block.blockData as RedstoneRail
+        val type = block.type
+        if (type != Material.DETECTOR_RAIL && !Tag.WOODEN_PRESSURE_PLATES.isTagged(type) &&
+            type != Material.LIGHT_WEIGHTED_PRESSURE_PLATE && type != Material.HEAVY_WEIGHTED_PRESSURE_PLATE
+        ) return
         if (!on && occupancy[key] != null && occupancy[key]?.occupied?.contains(key) == true) return
-        if (data.isPowered == on) return
-        data.isPowered = on
-        block.setBlockData(data, true)
+        when (val data = block.blockData) {
+            is Powerable -> {
+                if (data.isPowered == on) return
+                data.isPowered = on
+                block.setBlockData(data, true)
+            }
+            is AnaloguePowerable -> {
+                // 重量感圧板は乗っている数で強さが変わる。列車 1 本を 1 つと数える
+                val power = if (on) 1 else 0
+                if (data.power == power) return
+                data.power = power
+                block.setBlockData(data, true)
+            }
+        }
     }
 
     private fun fireSigns(train: Train, cart: Cart?, rail: BlockKey, enter: Boolean) {
@@ -427,7 +571,7 @@ class TrainManager(private val plugin: TOROTrain) {
         val vehicle = player.vehicle ?: return
         val cart = entityCarts[vehicle.uniqueId] ?: return
         val train = cart.train
-        if (driverOf(train) != player || !train.props.manualControl) return
+        if (driverOf(train) != player || !train.props.manualControl || train.derailed) return
         val forward = input.isForward && previous?.isForward != true
         val backward = input.isBackward && previous?.isBackward != true
         val jump = input.isJump && previous?.isJump != true
@@ -500,7 +644,10 @@ class TrainManager(private val plugin: TOROTrain) {
         return train
     }
 
-    fun defaultProps() = TrainProperties().also { it.speedLimit = settings.defaultSpeedLimit }
+    fun defaultProps() = TrainProperties().also {
+        it.speedLimit = settings.defaultSpeedLimit
+        it.derail = settings.derail
+    }
 
     private fun nextName(): String {
         var n = trains.size + 1
@@ -510,7 +657,7 @@ class TrainManager(private val plugin: TOROTrain) {
 
     /** 線路のブロックの上に列車を置く道を作る。face の向きに進むように置く (null なら線路が続くほう) */
     fun pathAt(block: Block, face: BlockFace?, length: Double, look: Vector3d? = null): TrackPath? {
-        val seg: TrackSegment = RailSegment.of(block)
+        val seg: TrackSegment = TrackBlocks.at(block).firstOrNull()
             ?: plugin.network.nodesAt(block.world.uid, Vector3d(block.x + 0.5, block.y + RailSegment.HEIGHT, block.z + 0.5)).firstOrNull()
                 ?.let { n -> n.links.firstNotNullOfOrNull { plugin.network.nodes[it] }?.let { plugin.network.segment(n, it) } }
             ?: return null
@@ -642,6 +789,8 @@ class TrainManager(private val plugin: TOROTrain) {
         }
         for (key in train.occupied) detectorRail(key, false)
         train.path = path
+        train.freeVelocity = null
+        train.derailedFrom = null
         train.layout()
         train.computePoses()
         initOccupancy(train)
@@ -736,6 +885,7 @@ class TrainManager(private val plugin: TOROTrain) {
         s.set("speed", train.speed)
         s.set("segments", train.path.segments.map { "${it.segment.id}${if (it.reversed) "<" else ">"}" })
         s.set("head-offset", train.path.headOffset)
+        train.freeVelocity?.let { s.set("free-velocity", listOf(it.x, it.y, it.z)) }
         val head = train.path.locate(0.0).point()
         s.set("head.x", head.x)
         s.set("head.y", head.y)
@@ -823,6 +973,11 @@ class TrainManager(private val plugin: TOROTrain) {
             path.headOffset = rebuilt.headOffset
         }
         train.speed = s.getDouble("speed")
+        val free = s.getDoubleList("free-velocity")
+        if (free.size == 3 && path.head.segment is FreeSegment) {
+            train.freeVelocity = Vector3d(free[0], free[1], free[2])
+            train.freeTicks = 10
+        }
         train.computePoses()
         initOccupancy(train)
         return train

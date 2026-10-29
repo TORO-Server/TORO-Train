@@ -1,9 +1,11 @@
 package net.torosaba.train.signs
 
+import net.torosaba.train.track.TrackBlocks
 import net.torosaba.train.util.BlockKey
 import org.bukkit.Tag
 import org.bukkit.block.Block
 import org.bukkit.block.BlockFace
+import org.bukkit.block.data.type.Ladder
 import org.bukkit.block.data.type.WallSign
 
 /**
@@ -40,18 +42,34 @@ class SignIndex {
             if (Tag.ALL_SIGNS.isTagged(b.type) && ActionSign.parse(b) != null) result += BlockKey.of(b)
         }
         // 線路の下のブロックの横に貼った看板
-        for (face in arrayOf(BlockFace.NORTH, BlockFace.EAST, BlockFace.SOUTH, BlockFace.WEST)) {
+        for (face in HORIZONTAL) {
             val b = below.getRelative(face)
             val data = b.blockData
             if (data is WallSign && data.facing == face && ActionSign.parse(b) != null) result += BlockKey.of(b)
         }
+        // ハシゴは、ハシゴを付けた壁の裏に置いた看板と、壁の横に貼った看板
+        val ladder = block.blockData as? Ladder
+        if (ladder != null) {
+            val back = ladder.facing.oppositeFace
+            val wall = block.getRelative(back)
+            val behind = wall.getRelative(back)
+            if (Tag.ALL_SIGNS.isTagged(behind.type) && ActionSign.parse(behind) != null) result += BlockKey.of(behind)
+            for (face in HORIZONTAL) {
+                if (face == ladder.facing) continue
+                val b = wall.getRelative(face)
+                val data = b.blockData
+                if (data is WallSign && data.facing == face && ActionSign.parse(b) != null) result += BlockKey.of(b)
+            }
+        }
         return result
     }
+
+    private val HORIZONTAL = arrayOf(BlockFace.NORTH, BlockFace.EAST, BlockFace.SOUTH, BlockFace.WEST)
 
     /** 看板が置かれた・消された・書き換えられたとき */
     fun invalidateAround(sign: BlockKey) {
         version++
-        cache.keys.removeIf { k -> k.world == sign.world && kotlin.math.abs(k.x - sign.x) <= 1 && kotlin.math.abs(k.z - sign.z) <= 1 && k.y - sign.y in 0..3 }
+        cache.keys.removeIf { k -> k.world == sign.world && kotlin.math.abs(k.x - sign.x) <= 2 && kotlin.math.abs(k.z - sign.z) <= 2 && k.y - sign.y in -1..3 }
     }
 
     fun clear() {
@@ -65,7 +83,13 @@ class SignIndex {
         val base = if (data is WallSign) sign.getRelative(data.facing.oppositeFace) else sign
         for (dy in 1..2) {
             val b = base.getRelative(0, dy, 0)
-            if (Tag.RAILS.isTagged(b.type)) return b
+            if (TrackBlocks.isTrack(b)) return b
+        }
+        // ハシゴを付けた壁の裏や横の看板
+        for (face in HORIZONTAL) {
+            val wall = if (data is WallSign) base else sign.getRelative(face)
+            val b = wall.getRelative(face)
+            if ((b.blockData as? Ladder)?.facing == face) return b
         }
         // 自由な線路のノードの下に置いた看板なら、線路のブロックそのものは空気
         return base.getRelative(0, 1, 0)
