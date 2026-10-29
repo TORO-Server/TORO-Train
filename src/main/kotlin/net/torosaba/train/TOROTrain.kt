@@ -2,6 +2,7 @@ package net.torosaba.train
 
 import net.torosaba.train.command.TrainCommand
 import net.torosaba.train.listener.SignListener
+import net.torosaba.train.listener.TrackListener
 import net.torosaba.train.listener.TrainListener
 import net.torosaba.train.model.ModelLibrary
 import net.torosaba.train.render.CartVisual
@@ -9,6 +10,7 @@ import net.torosaba.train.route.Router
 import net.torosaba.train.signs.MutexZones
 import net.torosaba.train.signs.NamedPlaces
 import net.torosaba.train.signs.SignIndex
+import net.torosaba.train.track.RailSegment
 import net.torosaba.train.track.TrackGraph
 import net.torosaba.train.track.TrackNetwork
 import net.torosaba.train.train.BlockTrains
@@ -55,6 +57,7 @@ class TOROTrain : JavaPlugin() {
     override fun onEnable() {
         saveDefaultConfig()
         settings = Settings(config)
+        RailSegment.allowUpsideDown = settings.upsideDownRails
         network = TrackNetwork(File(dataFolder, "tracks.yml")).also { it.load() }
         graph = TrackGraph(network)
         models = ModelLibrary(File(dataFolder, "models"), logger)
@@ -73,6 +76,7 @@ class TOROTrain : JavaPlugin() {
 
         server.pluginManager.registerEvents(TrainListener(this), this)
         server.pluginManager.registerEvents(SignListener(this), this)
+        server.pluginManager.registerEvents(TrackListener(this), this)
         val command = TrainCommand(this)
         getCommand("toro-train")?.apply {
             setExecutor(command)
@@ -98,6 +102,7 @@ class TOROTrain : JavaPlugin() {
     fun reloadAll() {
         reloadConfig()
         settings = Settings(config)
+        RailSegment.allowUpsideDown = settings.upsideDownRails
         models.clearCache()
         saved.load()
         signIndex.clear()

@@ -54,6 +54,29 @@ class VerticalPoseTest {
         assertVec(Vector3f(0f, 0f, 1f), cart.rotation.transform(Vector3f(0f, 1f, 0f)))
     }
 
+    /** 逆さまのレールのように 180 度傾けた線路では、車体の上が下を向く (ぶら下がる) */
+    @Test
+    fun hanging() {
+        val rail = object : TrackSegment {
+            override val world: World get() = this@VerticalPoseTest.world
+            override val length = 10.0
+            override val id = "upside-down"
+            override fun point(s: Double, out: Vector3d): Vector3d = out.set(s, 0.0, 0.5)
+            override fun tangent(s: Double, out: Vector3d): Vector3d = out.set(1.0, 0.0, 0.0)
+            override fun roll(s: Double) = 180.0
+            override fun triggerBlocks(from: Double, to: Double, out: MutableCollection<BlockKey>) {}
+        }
+        val path = TrackPath(world)
+        path.segments += DirectedSegment(rail, true)
+        path.headOffset = 6.0
+        val train = Train(UUID.randomUUID(), "t", path)
+        val cart = Cart(UUID.randomUUID(), BlockCartModel("test"))
+        train.add(cart) { 1.25 }
+        train.computePoses()
+        assertVec(Vector3f(-1f, 0f, 0f), cart.rotation.transform(Vector3f(0f, 0f, 1f)))
+        assertVec(Vector3f(0f, -1f, 0f), cart.rotation.transform(Vector3f(0f, 1f, 0f)))
+    }
+
     @Test
     fun descending() {
         val cart = poseOn(true)

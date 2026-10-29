@@ -6,6 +6,7 @@ import org.bukkit.Tag
 import org.bukkit.World
 import org.bukkit.block.Block
 import org.bukkit.block.BlockFace
+import org.bukkit.block.BlockSupport
 import org.bukkit.block.data.Powerable
 import org.bukkit.block.data.Rail
 import org.joml.Vector3d
@@ -19,6 +20,9 @@ import kotlin.math.sin
  *
  * 感圧板もまっすぐなレールとして走れる。向きは隣の線路で決まり、南北だけに線路があれば南北、
  * 東西だけなら東西、両方ある・どちらもないなら十字路で、入ってきた向きのまままっすぐ抜ける。
+ *
+ * 天井に付けた逆さまのレール (上が支えになるブロックで、下にレールを支えるブロックがない) では、
+ * 車体はレールの下にぶら下がる (線路はレールの底面から HEIGHT だけ下を通り、車体を 180 度傾ける)。
  */
 class RailSegment private constructor(
     override val world: World,
@@ -27,7 +31,11 @@ class RailSegment private constructor(
     val material: Material,
     /** パワードレールなどが動力を受けているか */
     val powered: Boolean,
+    /** 天井に付けた逆さまのレールか */
+    val upsideDown: Boolean = false,
 ) : BlockTrackSegment {
+    // 線路の高さ (平らなレールの端の y)
+    private val baseY = y + if (upsideDown) -HEIGHT else HEIGHT
     private val a: Vector3d
     private val b: Vector3d
     // 曲線のときの円の中心 (ブロックの角)。直線なら null
@@ -43,7 +51,7 @@ class RailSegment private constructor(
         a = port(faceA, ends.highA)
         b = port(faceB, ends.highB)
         corner = if (ends.curve) {
-            Vector3d(x + 0.5 + (faceA.modX + faceB.modX) * 0.5, y + HEIGHT, z + 0.5 + (faceA.modZ + faceB.modZ) * 0.5)
+            Vector3d(x + 0.5 + (faceA.modX + faceB.modX) * 0.5, baseY, z + 0.5 + (faceA.modZ + faceB.modZ) * 0.5)
         } else null
         length = if (corner != null) PI / 4 else a.distance(b)
     }
@@ -57,7 +65,9 @@ class RailSegment private constructor(
     override val id: String get() = if (isPlate) "r:$x,$y,$z/${shape.name}" else "r:$x,$y,$z"
 
     private fun port(face: BlockFace, high: Boolean) =
-        Vector3d(x + 0.5 + face.modX * 0.5, y + HEIGHT + if (high) 1.0 else 0.0, z + 0.5 + face.modZ * 0.5)
+        Vector3d(x + 0.5 + face.modX * 0.5, baseY + if (high) 1.0 else 0.0, z + 0.5 + face.modZ * 0.5)
+
+    override fun roll(s: Double): Double = if (upsideDown) 180.0 else 0.0
 
     /** 端の座標 (0: 始点, 1: 終点) */
     fun end(index: Int, out: Vector3d = Vector3d()): Vector3d = out.set(if (index == 0) a else b)
@@ -94,7 +104,8 @@ class RailSegment private constructor(
     }
 
     override fun equals(other: Any?) =
-        other is RailSegment && other.x == x && other.y == y && other.z == z && other.shape == shape && other.world == world
+        other is RailSegment && other.x == x && other.y == y && other.z == z && other.shape == shape &&
+            other.upsideDown == upsideDown && other.world == world
 
     override fun hashCode() = ((x * 31 + y) * 31 + z) * 31 + shape.ordinal
 
@@ -139,13 +150,28 @@ class RailSegment private constructor(
             val data = block.blockData
             if (data is Rail) {
                 val powered = (data as? Powerable)?.isPowered ?: false
-                return RailSegment(block.world, block.x, block.y, block.z, shape ?: data.shape, block.type, powered)
+                return RailSegment(block.world, block.x, block.y, block.z, shape ?: data.shape, block.type, powered, isUpsideDown(block))
             }
             if (!Tag.PRESSURE_PLATES.isTagged(block.type)) return null
             val shapes = plateShapes(block)
             val chosen = shape ?: shapes.first()
             if (chosen !in shapes) return null
             return RailSegment(block.world, block.x, block.y, block.z, chosen, block.type, false)
+        }
+
+        /** 逆さまのレールを使えるか (config.yml の track.upside-down-rails) */
+        @Volatile
+        var allowUpsideDown = true
+
+        /**
+         * 天井に付けた逆さまのレールか。上のブロックの下の面が支えになり、下のブロックがレールを支えられないとき。
+         * そのままではバニラの処理で壊れるので、TrackListener がブロックの更新を止めて残す
+         */
+        fun isUpsideDown(block: Block): Boolean {
+            if (!allowUpsideDown || block.blockData !is Rail) return false
+            val above = block.getRelative(BlockFace.UP).blockData
+            val below = block.getRelative(BlockFace.DOWN).blockData
+            return above.isFaceSturdy(BlockFace.DOWN, BlockSupport.CENTER) && !below.isFaceSturdy(BlockFace.UP, BlockSupport.RIGID)
         }
 
         /** 感圧板の区間。十字路なら南北と東西の 2 つ */

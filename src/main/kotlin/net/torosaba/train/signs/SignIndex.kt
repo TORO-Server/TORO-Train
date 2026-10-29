@@ -1,5 +1,6 @@
 package net.torosaba.train.signs
 
+import net.torosaba.train.track.RailSegment
 import net.torosaba.train.track.TrackBlocks
 import net.torosaba.train.util.BlockKey
 import org.bukkit.Tag
@@ -47,6 +48,17 @@ class SignIndex {
             val data = b.blockData
             if (data is WallSign && data.facing == face && ActionSign.parse(b) != null) result += BlockKey.of(b)
         }
+        // 逆さまのレールは上下を逆にして、天井のブロックの上に置いた看板と、天井のブロックの横に貼った看板
+        if (RailSegment.isUpsideDown(block)) {
+            val ceiling = block.getRelative(BlockFace.UP)
+            val top = ceiling.getRelative(BlockFace.UP)
+            if (Tag.ALL_SIGNS.isTagged(top.type) && ActionSign.parse(top) != null) result += BlockKey.of(top)
+            for (face in HORIZONTAL) {
+                val b = ceiling.getRelative(face)
+                val data = b.blockData
+                if (data is WallSign && data.facing == face && ActionSign.parse(b) != null) result += BlockKey.of(b)
+            }
+        }
         // ハシゴは、ハシゴを付けた壁の裏に置いた看板と、壁の横に貼った看板
         val ladder = block.blockData as? Ladder
         if (ladder != null) {
@@ -69,7 +81,7 @@ class SignIndex {
     /** 看板が置かれた・消された・書き換えられたとき */
     fun invalidateAround(sign: BlockKey) {
         version++
-        cache.keys.removeIf { k -> k.world == sign.world && kotlin.math.abs(k.x - sign.x) <= 2 && kotlin.math.abs(k.z - sign.z) <= 2 && k.y - sign.y in -1..3 }
+        cache.keys.removeIf { k -> k.world == sign.world && kotlin.math.abs(k.x - sign.x) <= 2 && kotlin.math.abs(k.z - sign.z) <= 2 && k.y - sign.y in -3..3 }
     }
 
     fun clear() {
@@ -84,6 +96,11 @@ class SignIndex {
         for (dy in 1..2) {
             val b = base.getRelative(0, dy, 0)
             if (TrackBlocks.isTrack(b)) return b
+        }
+        // 逆さまのレールの天井の上や横の看板
+        for (dy in 1..2) {
+            val b = base.getRelative(0, -dy, 0)
+            if (Tag.RAILS.isTagged(b.type) && RailSegment.isUpsideDown(b)) return b
         }
         // ハシゴを付けた壁の裏や横の看板
         for (face in HORIZONTAL) {

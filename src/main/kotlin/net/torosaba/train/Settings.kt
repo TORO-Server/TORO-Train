@@ -30,6 +30,9 @@ class Settings(c: FileConfiguration) {
     val freeAirDrag = c.getDouble("train.off-rail.air-drag", 0.95)
     val freeGroundFriction = c.getDouble("train.off-rail.ground-friction", 0.5)
 
+    /** 天井に付けた逆さまのレールを壊さずに残し、ぶら下がって走れるようにするか */
+    val upsideDownRails = c.getBoolean("track.upside-down-rails", true)
+
     val stationDelayTicks = c.getInt("signs.station-default-delay", 100)
     val routeSearchDistance = c.getDouble("route.max-distance", 5000.0)
 
