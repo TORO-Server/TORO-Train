@@ -63,7 +63,7 @@ TrainCarts のコードは使わず、Kotlin で一から作っています。
 
 ```
 1 行目: [train] (列車全体) / [cart] (車両ごと)
-         [+train] は信号があるときだけ、[!train] は信号がないときだけ働く
+         TrainCarts と同じく、[train] は信号があるときだけ、[+train] はいつも、[!train] は信号がないときだけ働く
 2 行目: 看板の種類
 3, 4 行目: 種類ごとの値
 ```
@@ -78,7 +78,7 @@ TrainCarts のコードは使わず、Kotlin で一から作っています。
 | `property` | `名前 値` | `名前 値` | 設定を変える (下の一覧) |
 | `tag` | `+付ける -外す =置き換える` | 続き | タグを付け外しする |
 | `route` | 行き先を空白で区切る | 続き | 順に向かう行き先を決める |
-| `blocker` | | | 信号があるあいだ手前で止める (`[!train]` で逆) |
+| `blocker` | | | 信号があるあいだ手前で止める (`[!train]` で逆、`[+train]` でいつも) |
 | `wait` | 空いているべき距離 | 空いてから待つ秒数 | 前の列車が離れるまで待つ |
 | `mutex` | 区間の名前 | `enter` / `leave` | 入口から出口まで 1 本の列車しか入れない |
 | `teleport` | 移る先の出入口の名前 | この出入口の名前 | 列車を別の場所 (別のワールドでもよい) の出入口へ移す。2 行目に向きを足せる |
@@ -203,6 +203,19 @@ TrainCarts のコードは使わず、Kotlin で一から作っています。
 | `models/` | ブロックのモデル (`.nbt` と `.yml`) |
 
 線路が変わって列車を元の場所に戻せないときは、覚えていた先頭の位置に最も近い線路に置き直します。ワールドがないなどで戻せない列車は、消さずに `trains.yml` に残します。
+
+## TrainCarts から移る
+
+TrainCarts を外して TORO-Train を入れると、最初の起動で `plugins/Train_Carts` のデータを引き継ぎます (`traincarts-import.yml` に記録し、2 回目からは引き継ぎません。`/tt import traincarts` でやり直せます)。
+
+- **保存した列車** (`SavedTrainProperties.yml`) は、同じ名前の保存した列車になります。`spawn` の看板と `/tt spawn` でそのまま出せます。
+- **車体**: WorldEdit のスケマティックの車体 (WE_SCHEMATIC) は、`plugins/WorldEdit/schematics` のファイルを TORO-Train のブロックのモデル (`models/tc-<名前>`) にします。看板の文字などのデータも写します。位置・向き・大きさ・座席・台車の間隔は TrainCarts と同じ計算で置きます。それ以外の車体はトロッコの形になります。
+- **走っていた列車** (`TrainProperties.yml`) は、TrainCarts を外すとふつうのトロッコとしてワールドに残っています。そのトロッコがチャンクとともに読み込まれたときに、TORO-Train の列車に置き換えます。
+- **設定**: 最高速度、`slowDown`、持ち主、タグ、行き先などを引き継ぎます。
+- **看板**: TrainCarts と同じく、`[train]` は信号があるときだけ、`[+train]` はいつも働きます。`station` (3 行目が停車時間、4 行目が「向き 速さ」)、`property` (3 行目が名前、4 行目が値)、`spawn` (3 行目と 4 行目をつなげた名前) は TrainCarts の書き方のまま働きます。
+- **権限**: TrainCarts の `train.build.*` (看板ごとの `train.build.station` なども) と `train.command.*` を持っている人は、TORO-Train の同じ看板とコマンドを使えます。
+
+TrainCarts に頼るプラグイン (MasconCart など) は動かなくなるので、一緒に外してください。
 
 ## まだないもの
 

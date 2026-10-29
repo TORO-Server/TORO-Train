@@ -161,7 +161,20 @@ object SignTypes {
 object Station : SignType("station", "st") {
     override val usage = "3 行目: 駅名 / 4 行目: 停車秒数 向き [power] [head|center|tail] [speed=速さ]"
 
+    /**
+     * TrainCarts の書き方の駅か。TrainCarts は 3 行目が停車時間、4 行目が「向き 速さ route max」の並び。
+     * 3 行目が時間として読めれば TrainCarts の書き方とみなす (駅名に数字だけの名前は使えない)
+     */
+    fun isTrainCartsFormat(sign: ActionSign): Boolean = sign.line3.isNotBlank() && Text.parseTicks(sign.line3) != null
+
     override fun validate(sign: ActionSign): String? {
+        if (isTrainCartsFormat(sign)) {
+            for (token in sign.line4.split(' ').filter { it.isNotBlank() }) {
+                val t = token.lowercase(Locale.ROOT)
+                if (t != "route" && t != "max" && LaunchDirection.parse(t) == null && Text.parseSpeed(t) == null) return "4 行目の「$token」が分かりません"
+            }
+            return null
+        }
         for (token in sign.line4.split(' ').filter { it.isNotBlank() }) {
             if (parseOption(token) == null) return "4 行目の「$token」が分かりません"
         }
@@ -187,6 +200,10 @@ object Station : SignType("station", "st") {
 
     override fun onEnter(ctx: SignContext) {
         if (ctx.cart != null) return
+        if (isTrainCartsFormat(ctx.sign)) {
+            trainCartsStation(ctx)
+            return
+        }
         val train = ctx.train
         val name = ctx.sign.line3
         if (name.isNotBlank()) {
@@ -228,6 +245,36 @@ object Station : SignType("station", "st") {
             },
             WaitAction(delay, "停車中", if (power) ({ sign.isPowered() }) else null),
             SignTypes.Run { SignTypes.output(sign.block, false) },
+            LaunchAction(launchSpeed, null, dir),
+        )
+    }
+
+    /**
+     * TrainCarts の駅。列車の中央を駅に合わせて止め、3 行目の時間だけ待ち、4 行目の向きと速さで発車する。
+     * 速さは最高速度までに抑える (TrainCarts と同じ)。max は最高速度。速さがなければ最高速度で発車する
+     */
+    private fun trainCartsStation(ctx: SignContext) {
+        val train = ctx.train
+        val delay = Text.parseTicks(ctx.sign.line3) ?: 0
+        var dir: LaunchDirection = LaunchDirection.Continue
+        var speed: Double? = null
+        for (token in ctx.sign.line4.split(' ').filter { it.isNotBlank() }) {
+            val t = token.lowercase(Locale.ROOT)
+            when {
+                t == "route" -> {}
+                t == "max" -> speed = train.props.speedLimit
+                LaunchDirection.parse(t) != null -> dir = LaunchDirection.parse(t)!!
+                else -> Text.parseSpeed(t)?.let { speed = it }
+            }
+        }
+        val remaining = (SignTypes.distanceTo(train, ctx.rail) + train.length() / 2).coerceAtLeast(0.0)
+        val launchSpeed = minOf(speed ?: train.props.speedLimit, train.props.speedLimit)
+        val sign = ctx.sign
+        train.action = SignTypes.chain(
+            StopAfter(remaining),
+            if (delay > 0) SignTypes.Run { SignTypes.output(sign.block, true) } else null,
+            WaitAction(delay, "停車中", null),
+            if (delay > 0) SignTypes.Run { SignTypes.output(sign.block, false) } else null,
             LaunchAction(launchSpeed, null, dir),
         )
     }
@@ -358,9 +405,18 @@ object SpeedLimit : SignType("speed", "speedlimit", "maxspeed") {
 
 /** 設定を変える。3, 4 行目: 「名前 値」 */
 object PropertySign : SignType("property", "prop", "set") {
-    override val usage = "3, 4 行目: 設定の名前 値 (例: gravity false)"
+    override val usage = "3, 4 行目: 設定の名前 値 (例: gravity false)。TrainCarts と同じ「3 行目: 名前 / 4 行目: 値」も使える"
+
+    /** TrainCarts の書き方 (3 行目が設定の名前だけ、4 行目が値) か */
+    private fun isTrainCartsFormat(sign: ActionSign): Boolean {
+        val name = sign.line3.trim()
+        if (name.isEmpty() || name.contains(' ') || sign.line4.isBlank()) return false
+        if (PropertyKeys.find(name) == null) return false
+        return PropertyKeys.find(sign.line4.trim().split(' ')[0]) == null
+    }
 
     override fun validate(sign: ActionSign): String? {
+        if (isTrainCartsFormat(sign)) return null
         for (line in listOf(sign.line3, sign.line4)) {
             if (line.isBlank()) continue
             val key = line.split(' ', limit = 2)[0]
@@ -370,6 +426,10 @@ object PropertySign : SignType("property", "prop", "set") {
     }
 
     override fun onEnter(ctx: SignContext) {
+        if (isTrainCartsFormat(ctx.sign)) {
+            PropertyKeys.find(ctx.sign.line3.trim())?.set?.invoke(ctx.train, ctx.cart, ctx.sign.line4.trim())
+            return
+        }
         for (line in listOf(ctx.sign.line3, ctx.sign.line4)) {
             if (line.isBlank()) continue
             val parts = line.split(' ', limit = 2)
@@ -421,14 +481,12 @@ object Enter : SignType("enter", "board") {
     }
 }
 
-/** 信号機。信号があるあいだ ([!train] なら信号がないあいだ)、手前で列車を止める */
+/** 信号機。信号があるあいだ ([!train] なら信号がないあいだ、[+train] ならいつも)、手前で列車を止める */
 object Blocker : SignType("blocker", "signal") {
-    override val usage = "レッドストーンの信号があるあいだ手前で止める ([!train] で逆)"
+    override val usage = "レッドストーンの信号があるあいだ手前で止める ([!train] で逆、[+train] でいつも)"
 
-    override fun blocks(plugin: TOROTrain, sign: ActionSign, train: Train): String? {
-        val stop = if (sign.power == ActionSign.PowerMode.UNPOWERED) !sign.isPowered() else sign.isPowered()
-        return if (stop) "信号" else null
-    }
+    override fun blocks(plugin: TOROTrain, sign: ActionSign, train: Train): String? =
+        if (sign.isActive()) "信号" else null
 }
 
 /** 前の列車との間隔を待つ。3 行目: 空いているべき距離 / 4 行目: 空いてから待つ秒数 */
@@ -555,8 +613,41 @@ object Spawn : SignType("spawn", "spawner") {
         val opts = sign.line4.split(' ').filter { it.isNotBlank() }
         val face = opts.firstNotNullOfOrNull { (LaunchDirection.parse(it) as? LaunchDirection.Compass)?.face }
         val speed = opts.firstNotNullOfOrNull { t -> Text.parseSpeed(t).takeIf { LaunchDirection.parse(t) == null } }
-        val train = plugin.trains.spawnSaved(sign.line3, rail, face, speed)
+        // TrainCarts は 3 行目と 4 行目をつなげて名前にする (長い名前を 2 行に分けて書ける)
+        val joined = sign.line3 + sign.line4
+        val train = if (plugin.saved.get(sign.line3) != null) {
+            plugin.trains.spawnSaved(sign.line3, rail, face, speed)
+        } else if (sign.line4.isNotBlank() && plugin.saved.get(joined) != null) {
+            plugin.trains.spawnSaved(joined, rail, null, null)
+        } else {
+            spawnLetters(plugin, sign.line3 + sign.line4, rail, face, speed)
+        }
         plugin.debug { if (train != null) "看板 (${sign.key}) が ${train.name} を出しました" else "看板 (${sign.key}) は列車を出せませんでした (保存した列車 ${sign.line3} か、線路 ${rail.x},${rail.y},${rail.z} がない)" }
+    }
+
+    /**
+     * TrainCarts と同じく、保存した列車の名前でなければ 1 文字ずつ車両の種類として読む
+     * (m: トロッコ、s: チェスト付き、f: かまど付き、t: TNT 付き、h: ホッパー付き)。読めない文字があれば出さない
+     */
+    private fun spawnLetters(plugin: TOROTrain, text: String, rail: Block, face: BlockFace?, speed: Double?): Train? {
+        val spec = text.trim().lowercase(Locale.ROOT)
+        if (spec.isEmpty()) return null
+        val materials = spec.map { c ->
+            when (c) {
+                'm' -> Material.IRON_BLOCK
+                's' -> Material.CHEST
+                'f', 'p' -> Material.FURNACE
+                't' -> Material.TNT
+                'h' -> Material.HOPPER
+                else -> return null
+            }
+        }
+        val models = materials.map { net.torosaba.train.model.DefaultCartModel(it) }
+        val length = models.sumOf { it.length(plugin.models) + plugin.settings.cartGap }
+        val path = plugin.trains.pathAt(rail, face, length) ?: return null
+        val train = plugin.trains.create(path, models)
+        if (speed != null && speed > 0) train.action = LaunchAction(speed, null)
+        return train
     }
 }
 

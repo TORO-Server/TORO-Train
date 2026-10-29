@@ -103,7 +103,8 @@ class Train(val id: UUID, var name: String, var path: TrackPath, val props: Trai
         val pr = Vector3d()
         for (cart in carts) {
             val front = cart.frontDistance
-            val inset = min(1.0, cart.length * 0.2)
+            val wd = cart.model.wheelDistance
+            val inset = if (wd > 0 && wd < cart.length) (cart.length - wd) / 2 else min(1.0, cart.length * 0.2)
             val bf = front + inset
             val br = front + cart.length - inset
             val posF = path.locate(bf)

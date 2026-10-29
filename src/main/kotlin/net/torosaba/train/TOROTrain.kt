@@ -1,6 +1,7 @@
 package net.torosaba.train
 
 import net.torosaba.train.command.TrainCommand
+import net.torosaba.train.compat.TrainCartsImport
 import net.torosaba.train.listener.SignListener
 import net.torosaba.train.listener.TrackListener
 import net.torosaba.train.listener.TrainListener
@@ -48,6 +49,8 @@ class TOROTrain : JavaPlugin() {
         private set
     lateinit var router: Router
         private set
+    lateinit var trainCarts: TrainCartsImport
+        private set
 
     val signIndex = SignIndex()
     val mutexes = MutexZones()
@@ -77,6 +80,16 @@ class TOROTrain : JavaPlugin() {
         server.pluginManager.registerEvents(TrainListener(this), this)
         server.pluginManager.registerEvents(SignListener(this), this)
         server.pluginManager.registerEvents(TrackListener(this), this)
+        trainCarts = TrainCartsImport(this)
+        server.pluginManager.registerEvents(trainCarts, this)
+        // TrainCarts のデータの引き継ぎは、サーバーが起動しきってから行う
+        server.scheduler.runTask(this, Runnable {
+            try {
+                trainCarts.autoImport()
+            } catch (e: Exception) {
+                logger.log(Level.SEVERE, "TrainCarts のデータを引き継げませんでした", e)
+            }
+        })
         val command = TrainCommand(this)
         getCommand("toro-train")?.apply {
             setExecutor(command)

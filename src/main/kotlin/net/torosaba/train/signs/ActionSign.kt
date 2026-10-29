@@ -10,8 +10,8 @@ import java.util.Locale
 /**
  * 列車に働きかける看板。
  *
- * 1 行目: [train] (列車全体) または [cart] (車両ごと)。[+train] はレッドストーンの信号があるときだけ、
- *          [!train] は信号がないときだけ働く
+ * 1 行目: [train] (列車全体) または [cart] (車両ごと)。TrainCarts と同じく、[train] はレッドストーンの信号が
+ *          あるときだけ、[+train] はいつも、[!train] は信号がないときだけ働く
  * 2 行目: 看板の種類 (station, launch など) と、続けて種類ごとの追加の指定
  * 3, 4 行目: 種類ごとの値
  */
@@ -54,10 +54,11 @@ class ActionSign(
         fun parse(block: Block, lines: List<String>): ActionSign? {
             if (lines.size < 2) return null
             val m = HEADER.matchEntire(lines[0].trim()) ?: return null
+            // TrainCarts と同じく、[train] は信号があるときだけ、[+train] はいつも、[!train] は信号がないときだけ働く
             val power = when (m.groupValues[1]) {
-                "+" -> PowerMode.POWERED
+                "+" -> PowerMode.ALWAYS
                 "!" -> PowerMode.UNPOWERED
-                else -> PowerMode.ALWAYS
+                else -> PowerMode.POWERED
             }
             val scope = if (m.groupValues[2].equals("cart", true)) Scope.CART else Scope.TRAIN
             val tokens = lines[1].trim().split(Regex("\\s+")).filter { it.isNotEmpty() }

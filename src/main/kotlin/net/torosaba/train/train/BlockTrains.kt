@@ -173,7 +173,10 @@ class BlockTrains(private val plugin: TOROTrain) {
         val model = cart.model as BlockCartModel
         val block = plugin.models.get(model.name) ?: throw IllegalStateException("モデル ${model.name} がありません")
         val world = cart.train.world
-        val q = Quaternionf(cart.rotation).rotateY(Math.toRadians(model.yaw.toDouble()).toFloat()).mul(block.baseRotation)
+        if (model.scale.x != 1f || model.scale.y != 1f || model.scale.z != 1f) {
+            throw IllegalStateException("大きさを変えたモデル ${model.name} はブロックに戻せません")
+        }
+        val q = Quaternionf(cart.rotation).mul(model.rotation()).mul(block.baseRotation)
         val x = q.transform(Vector3f(1f, 0f, 0f))
         val k = ((atan2(-x.z.toDouble(), x.x.toDouble()) / (PI / 2)).roundToInt()).mod(4)
         val snap = Quaternionf().rotateY((k * PI / 2).toFloat())

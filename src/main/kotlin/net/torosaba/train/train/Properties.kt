@@ -134,7 +134,18 @@ object PropertyKeys {
         trainDouble("speedlimit", "maxspeed", "speed-limit", speed = true) { it::speedLimit },
         trainDouble("acceleration", "accel", speed = true) { it::acceleration },
         trainDouble("deceleration", "decel", "brake", speed = true) { it::deceleration },
-        trainDouble("friction", "slowdown") { it::friction },
+        trainDouble("friction") { it::friction },
+        // TrainCarts の slowdown: false なら摩擦も坂の重力もなし、true なら既定に戻す。数なら摩擦
+        Key("slowdown", emptyList(), false, { t, _ -> "friction=${t.props.friction} gravity=${t.props.gravity}" }, { t, _, v ->
+            val b = bool(v)
+            val number = v.toDoubleOrNull()
+            when {
+                b == false -> { t.props.friction = 0.0; t.props.gravity = false; true }
+                b == true -> { t.props.friction = TrainProperties().friction; t.props.gravity = true; true }
+                number != null && number >= 0 -> { t.props.friction = number; true }
+                else -> false
+            }
+        }),
         trainDouble("waitdistance", "wait-distance", "spacing") { it::waitDistance },
         trainBool("gravity") { it::gravity },
         trainBool("coupling", "link") { it::coupling },

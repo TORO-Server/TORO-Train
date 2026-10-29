@@ -42,11 +42,13 @@ class SignIndex {
         for (b in listOf(below, below.getRelative(BlockFace.DOWN))) {
             if (Tag.ALL_SIGNS.isTagged(b.type) && ActionSign.parse(b) != null) result += BlockKey.of(b)
         }
-        // 線路の下のブロックの横に貼った看板
-        for (face in HORIZONTAL) {
-            val b = below.getRelative(face)
-            val data = b.blockData
-            if (data is WallSign && data.facing == face && ActionSign.parse(b) != null) result += BlockKey.of(b)
+        // 線路の下のブロックと、そのさらに下のブロックの横に貼った看板 (TrainCarts と同じ)
+        for (base in listOf(below, below.getRelative(BlockFace.DOWN))) {
+            for (face in HORIZONTAL) {
+                val b = base.getRelative(face)
+                val data = b.blockData
+                if (data is WallSign && data.facing == face && ActionSign.parse(b) != null) result += BlockKey.of(b)
+            }
         }
         // 逆さまのレールは上下を逆にして、天井のブロックの上に置いた看板と、天井のブロックの横に貼った看板
         if (RailSegment.isUpsideDown(block)) {

@@ -56,6 +56,25 @@ class ModelLibrary(private val dir: File, private val logger: Logger) {
         return BlockModel(key, structure, origin, rotation).also { models[key] = it }
     }
 
+    /**
+     * WorldEdit のスケマティックからモデルを作る。原点は TrainCarts と同じく、横と前後は中央、高さはいちばん下にする
+     */
+    fun importSchematic(name: String, schem: File): BlockModel? {
+        val key = name.lowercase()
+        dir.mkdirs()
+        val result = SchematicConverter.convert(schem, File(dir, "$key.nbt"))
+        val yaml = YamlConfiguration()
+        yaml.set("origin.x", result.width / 2.0)
+        yaml.set("origin.y", 0.0)
+        yaml.set("origin.z", result.length / 2.0)
+        yaml.set("rotation.w", 1.0)
+        yaml.set("blocks", result.blocks)
+        yaml.set("source", schem.name)
+        yaml.save(File(dir, "$key.yml"))
+        models.remove(key)
+        return get(key)
+    }
+
     fun delete(name: String): Boolean {
         val key = name.lowercase()
         models.remove(key)

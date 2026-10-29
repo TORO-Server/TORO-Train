@@ -24,6 +24,9 @@ sealed class CartModel {
     /** 写し取ったブロックのモデルなら、その名前 */
     open val blockModelName: String? get() = null
 
+    /** 前後の台車の間隔。0 以下なら車両の長さから決める */
+    open val wheelDistance: Double get() = -1.0
+
     companion object {
         fun load(section: ConfigurationSection?): CartModel {
             if (section == null) return DefaultCartModel()
@@ -33,6 +36,18 @@ sealed class CartModel {
                     readVector(section, "offset"),
                     section.getDouble("yaw").toFloat(),
                     section.getDouble("length", -1.0),
+                    Quaternionf(
+                        section.getDouble("rotation.x").toFloat(), section.getDouble("rotation.y").toFloat(),
+                        section.getDouble("rotation.z").toFloat(), section.getDouble("rotation.w", 1.0).toFloat(),
+                    ),
+                    if (section.contains("scale")) readVector(section, "scale") else Vector3f(1f),
+                    section.getMapList("seats").takeIf { it.isNotEmpty() }?.map { m ->
+                        Seat(
+                            Vector3f((m["x"] as Number).toFloat(), (m["y"] as Number).toFloat(), (m["z"] as Number).toFloat()),
+                            m["driver"] == true,
+                        )
+                    },
+                    section.getDouble("wheel-distance", -1.0),
                 )
                 "item" -> ItemCartModel(
                     section.getString("item")?.let { ItemStack.deserializeBytes(Base64.getDecoder().decode(it)) }
@@ -101,51 +116,88 @@ class DefaultCartModel(val material: Material = Material.IRON_BLOCK, val length:
     override fun describe() = "トロッコ (${material.name.lowercase()})"
 }
 
-/** ワールドから写し取ったブロックのモデル */
+/**
+ * ワールドから写し取ったブロックのモデル。
+ * 車体の座標での変換は T(offset) * Ry(yaw) * extraRotation * S(scale) * モデル
+ */
 class BlockCartModel(
     val name: String,
     val offset: Vector3f = Vector3f(),
     val yaw: Float = 0f,
     /** 0 より大きければ、モデルの大きさの代わりにこの長さを使う */
     val lengthOverride: Double = -1.0,
+    /** yaw のあとにかける回転 (TrainCarts から引き継いだモデルの傾きなど) */
+    val extraRotation: Quaternionf = Quaternionf(),
+    val scale: Vector3f = Vector3f(1f),
+    /** 決めてある座席 (車体の座標、足の位置)。null ならモデルの階段から決める */
+    val fixedSeats: List<Seat>? = null,
+    override val wheelDistance: Double = -1.0,
 ) : CartModel() {
     override val blockModelName: String get() = name
 
-    private fun rotation() = Quaternionf().rotateY(Math.toRadians(yaw.toDouble()).toFloat())
+    fun rotation(): Quaternionf = Quaternionf().rotateY(Math.toRadians(yaw.toDouble()).toFloat()).mul(extraRotation)
+
+    private val scaled get() = scale.x != 1f || scale.y != 1f || scale.z != 1f
+
+    // モデルの座標で大きさを変える (縦横の倍率が同じなら正確、違えば近い形)
+    private fun scaleTransform(t: PartTransform) = PartTransform(
+        Vector3f(t.translation).mul(scale), Quaternionf(t.left), Vector3f(t.scale).mul(scale), Quaternionf(t.right),
+    )
+
+    private fun scaledBounds(lib: ModelLibrary): Pair<Vector3f, Vector3f>? {
+        val (min, max) = lib.get(name)?.bounds() ?: return null
+        if (!scaled && extraRotation.equals(Quaternionf(), 1e-6f)) return min to max
+        val outMin = Vector3f(Float.MAX_VALUE)
+        val outMax = Vector3f(-Float.MAX_VALUE)
+        for (corner in 0 until 8) {
+            val p = Vector3f(
+                if (corner and 1 != 0) max.x else min.x,
+                if (corner and 2 != 0) max.y else min.y,
+                if (corner and 4 != 0) max.z else min.z,
+            ).mul(scale)
+            extraRotation.transform(p)
+            outMin.min(p)
+            outMax.max(p)
+        }
+        return outMin to outMax
+    }
 
     override fun length(lib: ModelLibrary): Double {
         if (lengthOverride > 0) return lengthOverride
-        val (min, max) = lib.get(name)?.bounds() ?: return 1.0
+        val (min, max) = scaledBounds(lib) ?: return 1.0
         return (max.z - min.z).toDouble().coerceAtLeast(0.5)
     }
 
     override fun width(lib: ModelLibrary): Double {
-        val (min, max) = lib.get(name)?.bounds() ?: return 1.0
+        val (min, max) = scaledBounds(lib) ?: return 1.0
         return (max.x - min.x).toDouble().coerceAtLeast(0.5)
     }
 
     override fun height(lib: ModelLibrary): Double {
-        val (_, max) = lib.get(name)?.bounds() ?: return 1.0
-        return max.y.toDouble().coerceAtLeast(0.5)
+        val (_, max) = scaledBounds(lib) ?: return 1.0
+        return (max.y + offset.y).toDouble().coerceAtLeast(0.5)
     }
 
     override fun parts(lib: ModelLibrary, flipSignItems: Boolean): List<Part> {
         val model = lib.get(name) ?: return DefaultCartModel(Material.RED_CONCRETE).parts(lib, flipSignItems)
-        if (yaw == 0f && offset.lengthSquared() == 0f) return model.parts(flipSignItems)
+        val base = model.parts(flipSignItems)
         val rot = rotation()
-        return model.parts(flipSignItems).map { part ->
+        if (!scaled && rot.equals(Quaternionf(), 1e-6f) && offset.lengthSquared() == 0f) return base
+        return base.map { part ->
+            val t = if (scaled) scaleTransform(part.transform) else part.transform
             when (part) {
-                is BlockPart -> BlockPart(part.data, part.transform.premultiply(rot, offset))
-                is ItemPart -> ItemPart(part.item, part.display, part.transform.premultiply(rot, offset))
-                is TextPart -> TextPart(part.text, part.glowing, part.transform.premultiply(rot, offset))
+                is BlockPart -> BlockPart(part.data, t.premultiply(rot, offset))
+                is ItemPart -> ItemPart(part.item, part.display, t.premultiply(rot, offset))
+                is TextPart -> TextPart(part.text, part.glowing, t.premultiply(rot, offset))
             }
         }
     }
 
     override fun seats(lib: ModelLibrary): List<Seat> {
+        fixedSeats?.let { return it }
         val model = lib.get(name) ?: return listOf(Seat(Vector3f(0f, 0.3f, 0f), true))
         val rot = rotation()
-        return model.seats().map { Seat(rot.transform(Vector3f(it.position)).add(offset), it.driver) }
+        return model.seats().map { Seat(rot.transform(Vector3f(it.position).mul(scale)).add(offset), it.driver) }
     }
 
     override fun save(section: ConfigurationSection) {
@@ -154,6 +206,17 @@ class BlockCartModel(
         writeVector(section, "offset", offset)
         section.set("yaw", yaw.toDouble())
         if (lengthOverride > 0) section.set("length", lengthOverride)
+        if (!extraRotation.equals(Quaternionf(), 1e-6f)) {
+            section.set("rotation.x", extraRotation.x.toDouble())
+            section.set("rotation.y", extraRotation.y.toDouble())
+            section.set("rotation.z", extraRotation.z.toDouble())
+            section.set("rotation.w", extraRotation.w.toDouble())
+        }
+        if (scaled) writeVector(section, "scale", scale)
+        fixedSeats?.let { seats ->
+            section.set("seats", seats.map { mapOf("x" to it.position.x.toDouble(), "y" to it.position.y.toDouble(), "z" to it.position.z.toDouble(), "driver" to it.driver) })
+        }
+        if (wheelDistance > 0) section.set("wheel-distance", wheelDistance)
     }
 
     override fun describe() = "ブロックのモデル $name"

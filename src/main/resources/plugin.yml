@@ -35,6 +35,93 @@ permissions:
   torotrain.sign.*:
     description: すべての種類の看板を置く
     default: op
+  # TrainCarts の権限を持っている人は、同じことを TORO-Train でもできる (TrainCarts から移るとき、権限を付け直さなくてよい)
+  train.build:
+    default: false
+    children:
+      torotrain.sign.*: true
+  train.build.*:
+    default: false
+    children:
+      torotrain.sign.*: true
+  train.build.station:
+    default: false
+    children:
+      torotrain.sign.station: true
+  train.build.destination:
+    default: false
+    children:
+      torotrain.sign.destination: true
+      torotrain.sign.route: true
+  train.build.switcher:
+    default: false
+    children:
+      torotrain.sign.switcher: true
+      torotrain.sign.tag: true
+  train.build.launcher:
+    default: false
+    children:
+      torotrain.sign.launch: true
+      torotrain.sign.speed: true
+  train.build.property:
+    default: false
+    children:
+      torotrain.sign.property: true
+      torotrain.sign.speed: true
+      torotrain.sign.tag: true
+  train.build.spawner:
+    default: false
+    children:
+      torotrain.sign.spawn: true
+  train.build.announcer:
+    default: false
+    children:
+      torotrain.sign.announce: true
+  train.build.skipper:
+    default: false
+    children:
+      torotrain.sign.skip: true
+  train.build.blocker:
+    default: false
+    children:
+      torotrain.sign.blocker: true
+  train.build.waiter:
+    default: false
+    children:
+      torotrain.sign.wait: true
+  train.build.ejector:
+    default: false
+    children:
+      torotrain.sign.eject: true
+  train.build.teleporter:
+    default: false
+    children:
+      torotrain.sign.teleport: true
+  train.build.destructor:
+    default: false
+    children:
+      torotrain.sign.destroy: true
+  train.build.detector:
+    default: false
+    children:
+      torotrain.sign.detector: true
+  train.build.mutex:
+    default: false
+    children:
+      torotrain.sign.mutex: true
+  train.build.soundplayer:
+    default: false
+    children:
+      torotrain.sign.sound: true
+  train.build.effect:
+    default: false
+    children:
+      torotrain.sign.effect: true
+  train.command.*:
+    default: false
+    children:
+      torotrain.create: true
+      torotrain.destroy: true
   torotrain.admin:
     description: すべての列車の操作、ブロックの列車、自由な線路、再読み込み
     default: op

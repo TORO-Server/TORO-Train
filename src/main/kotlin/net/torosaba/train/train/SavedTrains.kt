@@ -29,6 +29,12 @@ class SavedTrains(private val file: File) {
         write()
     }
 
+    /** 作った Template をそのまま保存する (TrainCarts から引き継ぐときなど) */
+    fun put(name: String, template: Template) {
+        templates[name.lowercase()] = template
+        write()
+    }
+
     fun delete(name: String): Boolean = (templates.remove(name.lowercase()) != null).also { if (it) write() }
 
     /** そのブロックのモデルを使っている保存した列車があるか */

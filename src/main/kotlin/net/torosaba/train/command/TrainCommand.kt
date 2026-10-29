@@ -203,6 +203,13 @@ class TrainCommand(private val plugin: TOROTrain) : TabExecutor {
                 plugin.saveAllData()
                 msg(sender, "&a保存しました")
             }
+            "import" -> {
+                need(sender, "torotrain.admin")
+                if (rest.firstOrNull()?.lowercase() != "traincarts") fail("/tt import traincarts")
+                val r = plugin.trainCarts.importAll()
+                msg(sender, "&aTrainCarts から引き継ぎました: 保存した列車 ${r.saved} 本、走っていた列車 ${r.live} 本 (置き換えを待っている列車 ${plugin.trainCarts.pendingCount()} 本)、モデル ${r.models} 個")
+                if (r.missing.isNotEmpty()) msg(sender, "&c見つからないスケマティック: ${r.missing.joinToString(", ")}")
+            }
             else -> fail("サブコマンド $sub はありません。/tt help")
         }
     }
