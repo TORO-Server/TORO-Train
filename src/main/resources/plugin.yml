@@ -30,7 +30,7 @@ permissions:
     description: /tt create と /tt spawn で列車を出す
     default: op
   torotrain.destroy:
-    description: しゃがんで叩いて列車を消す (自分の列車だけ。admin はすべて)
+    description: 叩いて車両を壊す (自分の列車だけ。admin はすべて)
     default: true
   torotrain.sign.*:
     description: すべての種類の看板を置く

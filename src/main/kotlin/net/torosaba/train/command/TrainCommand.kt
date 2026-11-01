@@ -222,7 +222,7 @@ class TrainCommand(private val plugin: TOROTrain) : TabExecutor {
             "speed <速さ> / launch <速さ> [加速度] / stop / reverse",
             "property <名前> [値] / cart property <名前> [値]",
             "dest <行き先> / route <行き先...> / dests / tag add|remove|clear <タグ>",
-            "name <名前> / split <何両目から> / enter / exit",
+            "name <名前> / split <何両目から> / enter / exit / cart destroy (一両だけ消す)",
             "model default|blocks <名前>|item [大きさ]|yaw <度>|offset <x> <y> <z>|length <長さ>",
             "wand / pos1 / pos2 / blocks capture <名前> [高さ] / blocks convert [名前] / blocks restore [force]",
             "models [delete <名前>] / track ... / signs / reload / saveall",
@@ -357,7 +357,12 @@ class TrainCommand(private val plugin: TOROTrain) : TabExecutor {
             "property", "prop" -> property(sender, args.drop(1), c)
             "tag" -> tagOn(sender, c.props.tags, args.drop(1))
             "eject" -> plugin.trains.eject(c)
-            else -> fail("/tt cart property|tag|eject ...")
+            "destroy", "remove" -> {
+                owned(sender)
+                plugin.trains.removeCart(c)
+                msg(sender, "&a車両を一両消しました")
+            }
+            else -> fail("/tt cart property|tag|eject|destroy ...")
         }
     }
 
@@ -622,7 +627,7 @@ class TrainCommand(private val plugin: TOROTrain) : TabExecutor {
                 "saved" -> listOf("delete")
                 "select" -> listOf("nearest") + plugin.trains.trains.values.map { it.name }
                 "property", "prop" -> PropertyKeys.keys.map { it.name }
-                "cart" -> listOf("property", "tag", "eject")
+                "cart" -> listOf("property", "tag", "eject", "destroy")
                 "dest", "route" -> plugin.places.destinations.keys.toList() + listOf("none")
                 "tag" -> listOf("add", "remove", "clear", "list")
                 "model" -> listOf("default", "blocks", "item", "yaw", "offset", "length")

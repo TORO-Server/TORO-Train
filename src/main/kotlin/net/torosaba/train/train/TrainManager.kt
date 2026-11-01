@@ -703,6 +703,27 @@ class TrainManager(private val plugin: TOROTrain) {
         selected.values.removeIf { it == train.id }
     }
 
+    /** 車両を一両だけ消す。最後の一両なら列車ごと消える。残りの車両は前へ詰める */
+    fun removeCart(cart: Cart) {
+        val train = cart.train
+        if (train.removed) return
+        if (train.carts.size <= 1) {
+            destroy(train)
+            return
+        }
+        val visual = cart.visual
+        if (visual != null) {
+            val exits = cart.passengers().associateWith { visual.exitLocation(visual.seatOf(it)) }
+            visual.despawn()
+            exits.forEach { (p, loc) -> p.teleport(loc) }
+        }
+        cart.visual = null
+        train.carts.remove(cart)
+        train.layout()
+        train.computePoses()
+        initOccupancy(train)
+    }
+
     fun destroyAll(world: World?): Int {
         val targets = trains.values.filter { world == null || it.world == world }
         targets.forEach { destroy(it) }

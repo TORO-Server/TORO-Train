@@ -5,6 +5,7 @@ import net.torosaba.train.TOROTrain
 import net.torosaba.train.model.DefaultCartModel
 import net.torosaba.train.track.TrackBlocks
 import net.torosaba.train.util.Text
+import org.bukkit.GameMode
 import org.bukkit.Material
 import org.bukkit.entity.Interaction
 import org.bukkit.entity.Player
@@ -18,6 +19,7 @@ import org.bukkit.event.player.PlayerInteractEntityEvent
 import org.bukkit.event.player.PlayerInteractEvent
 import org.bukkit.event.player.PlayerQuitEvent
 import org.bukkit.inventory.EquipmentSlot
+import org.bukkit.inventory.ItemStack
 
 /** 列車に乗る・降りる・壊す・運転する操作と、範囲を選ぶ道具 */
 class TrainListener(private val plugin: TOROTrain) : Listener {
@@ -46,10 +48,11 @@ class TrainListener(private val plugin: TOROTrain) : Listener {
         event.isCancelled = true
         val player = event.player
         val train = cart.train
-        // しゃがんで叩くと列車を消す
-        if (!player.isSneaking) {
+        // 普通のトロッコと同じに、叩くと叩いた車両を一両だけ壊す (最後の一両なら列車ごと。列車ぜんぶは /tt destroy)
+        // しゃがんで叩くと、壊さずに列車を選ぶ
+        if (player.isSneaking) {
             plugin.trains.selected[player.uniqueId] = train.id
-            player.sendActionBar(Text.color("&7列車 &f${train.displayName()} &7を選びました (しゃがんで叩くと消します)"))
+            player.sendActionBar(Text.color("&7列車 &f${train.displayName()} &7を選びました (しゃがまずに叩くと、この車両を壊します)"))
             return
         }
         val admin = player.hasPermission("torotrain.admin")
@@ -57,8 +60,12 @@ class TrainListener(private val plugin: TOROTrain) : Listener {
             player.sendActionBar(Text.color("&cこの列車は消せません"))
             return
         }
-        plugin.trains.destroy(train)
-        player.sendActionBar(Text.color("&a列車 ${train.displayName()} を消しました"))
+        val last = train.carts.size <= 1
+        val drop = cart.model is DefaultCartModel && player.gameMode != GameMode.CREATIVE
+        val at = cart.visual?.exitLocation(null)
+        plugin.trains.removeCart(cart)
+        if (drop && at != null) at.world.dropItemNaturally(at, ItemStack(Material.MINECART))
+        player.sendActionBar(Text.color(if (last) "&a列車 ${train.displayName()} を消しました" else "&a車両を一両消しました"))
     }
 
     @EventHandler(ignoreCancelled = true)
