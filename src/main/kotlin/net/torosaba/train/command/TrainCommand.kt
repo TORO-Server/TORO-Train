@@ -1,6 +1,7 @@
 package net.torosaba.train.command
 
 import net.torosaba.train.TOROTrain
+import net.torosaba.train.model.AttachmentCartModel
 import net.torosaba.train.model.BlockCartModel
 import net.torosaba.train.model.DefaultCartModel
 import net.torosaba.train.model.ItemCartModel
@@ -10,6 +11,7 @@ import net.torosaba.train.track.TrackBlocks
 import net.torosaba.train.track.TrackNode
 import net.torosaba.train.train.Cart
 import net.torosaba.train.train.LaunchAction
+import net.torosaba.train.train.MasconProfile
 import net.torosaba.train.train.PropertyKeys
 import net.torosaba.train.train.Train
 import net.torosaba.train.util.Text
@@ -64,7 +66,8 @@ class TrainCommand(private val plugin: TOROTrain) : TabExecutor {
         return plugin.trains.cartOf(p) ?: owned(sender).carts.firstOrNull() ?: fail("車両がありません")
     }
 
-    private fun speedArg(text: String?): Double = text?.let { Text.parseSpeed(it) } ?: fail("速さを書いてください (0.4 / 60km / 10m/s)")
+    private fun speedArg(text: String?): Double =
+        text?.let { Text.parseSpeed(it) }?.takeIf { it >= 0 } ?: fail("速さを書いてください (0.4 / 60km / 10m/s)")
 
     override fun onCommand(sender: CommandSender, command: Command, label: String, args: Array<String>): Boolean {
         try {
@@ -136,11 +139,21 @@ class TrainCommand(private val plugin: TOROTrain) : TabExecutor {
             }
             "route" -> {
                 val t = owned(sender)
+                // load <名前> は保存した経路 (TrainCarts の routes.yml から引き継いだものなど)
+                val list = if (rest.firstOrNull()?.equals("load", true) == true) {
+                    val name = rest.getOrNull(1) ?: fail("/tt route load <経路の名前>")
+                    plugin.places.route(name) ?: fail("経路 $name はありません")
+                } else if (rest.firstOrNull()?.equals("none", true) == true) {
+                    emptyList()
+                } else {
+                    rest
+                }
                 t.props.route.clear()
-                if (rest.firstOrNull()?.equals("none", true) != true) t.props.route += rest
+                t.props.route += list
                 t.props.destination = t.props.route.firstOrNull()
                 msg(sender, "&a経路: ${t.props.route.joinToString(" → ").ifEmpty { "なし" }}")
             }
+            "routes" -> msg(sender, "保存した経路: ${plugin.places.routes.keys.sorted().joinToString(", ").ifEmpty { "なし" }}")
             "dests", "destinations" -> {
                 val names = plugin.places.destinations.keys.sorted() + plugin.network.nodes.values.mapNotNull { it.name }
                 msg(sender, "行き先: ${names.distinct().joinToString(", ").ifEmpty { "なし" }}")
@@ -207,8 +220,9 @@ class TrainCommand(private val plugin: TOROTrain) : TabExecutor {
                 need(sender, "torotrain.admin")
                 if (rest.firstOrNull()?.lowercase() != "traincarts") fail("/tt import traincarts")
                 val r = plugin.trainCarts.importAll()
-                msg(sender, "&aTrainCarts から引き継ぎました: 保存した列車 ${r.saved} 本、走っていた列車 ${r.live} 本 (置き換えを待っている列車 ${plugin.trainCarts.pendingCount()} 本)、モデル ${r.models} 個")
+                msg(sender, "&aTrainCarts から引き継ぎました: 保存した列車 ${r.saved} 本、走っていた列車 ${r.live} 本 (置き換えを待っている列車 ${plugin.trainCarts.pendingCount()} 本)、モデル ${r.models} 個、経路 ${r.routes} 個、行き先 ${r.destinations} 個")
                 if (r.missing.isNotEmpty()) msg(sender, "&c見つからないスケマティック: ${r.missing.joinToString(", ")}")
+                if (r.skipped.isNotEmpty()) msg(sender, "&e描かなかったもの: ${r.skipped.joinToString(", ")}")
             }
             else -> fail("サブコマンド $sub はありません。/tt help")
         }
@@ -221,11 +235,11 @@ class TrainCommand(private val plugin: TOROTrain) : TabExecutor {
             "list / info / select [名前|nearest] / destroy / destroyall [ワールド]",
             "speed <速さ> / launch <速さ> [加速度] / stop / reverse",
             "property <名前> [値] / cart property <名前> [値]",
-            "dest <行き先> / route <行き先...> / dests / tag add|remove|clear <タグ>",
+            "dest <行き先> / route <行き先...>|load <名前> / routes / dests / tag add|remove|clear <タグ>",
             "name <名前> / split <何両目から> / enter / exit / cart destroy (一両だけ消す)",
             "model default|blocks <名前>|item [大きさ]|yaw <度>|offset <x> <y> <z>|length <長さ>",
             "wand / pos1 / pos2 / blocks capture <名前> [高さ] / blocks convert [名前] / blocks restore [force]",
-            "models [delete <名前>] / track ... / signs / reload / saveall",
+            "models [delete <名前>] / track ... / signs / reload / saveall / import traincarts",
         )
         msg(sender, "&eTORO-Train ${plugin.pluginMeta.version} のコマンド (/tt):")
         lines.forEach { sender.sendMessage(Text.color("&7 /tt &f$it")) }
@@ -275,10 +289,14 @@ class TrainCommand(private val plugin: TOROTrain) : TabExecutor {
         need(sender, "torotrain.create")
         val own = beforeAt(args)
         val name = own.firstOrNull() ?: fail("/tt spawn <保存名> [速さ] [at x y z [ワールド] [向き]]")
-        if (plugin.saved.get(name) == null) fail("保存した列車 $name はありません")
         val speed = own.getOrNull(1)?.let { speedArg(it) }
         val (block, face, look) = placement(sender, args)
-        val t = plugin.trains.spawnSaved(name, block, face, speed, look) ?: fail("線路がありません")
+        // 保存した列車の名前でなければ、TrainCarts の spawn の書き方 (3m、2st など) として読む
+        val t = if (plugin.saved.get(name) != null) {
+            plugin.trains.spawnSaved(name, block, face, speed, look) ?: fail("線路がありません")
+        } else {
+            plugin.trains.spawnPattern(name, block, face, speed, look) ?: fail("保存した列車 $name はありません")
+        }
         (sender as? Player)?.let { t.props.owners += it.uniqueId }
         plugin.trains.selected[senderId(sender)] = t.id
         msg(sender, "&a「$name」を ${t.name} として出しました")
@@ -313,6 +331,9 @@ class TrainCommand(private val plugin: TOROTrain) : TabExecutor {
                 if (t.derailed) " &c線路から外れている" else "",
             "速さ: ${Text.speed(t.speed)} / 最高 ${Text.speed(t.props.speedLimit)}",
             "動作: ${t.action?.describe() ?: "なし"}${t.blockedBy?.let { " (止まっている理由: $it)" } ?: ""}",
+            "マスコン: " + (t.masconDriver?.let { id ->
+                String.format(Locale.ROOT, "%s / %s / %.3f ブロック/tick", plugin.server.getPlayer(id)?.name ?: id.toString(), MasconProfile.label(t.notch), t.speed)
+            } ?: "なし"),
             "行き先: ${t.props.destination ?: "なし"}  経路: ${t.props.route.joinToString(" → ").ifEmpty { "なし" }}",
             "タグ: ${t.props.tags.joinToString(", ").ifEmpty { "なし" }}",
             "乗客: ${t.passengers().joinToString(", ") { it.name }.ifEmpty { "なし" }}",
@@ -353,12 +374,25 @@ class TrainCommand(private val plugin: TOROTrain) : TabExecutor {
 
     private fun cartCommand(sender: CommandSender, args: List<String>) {
         val c = cart(sender)
+        // 乗っているだけの人が、持ち主でない列車の車両を変えられないようにする (見るだけならよい)
+        fun needOwner() {
+            if (sender is Player && !c.train.isOwner(sender) && !sender.hasPermission("torotrain.admin")) fail("この列車の持ち主ではありません")
+        }
         when (args.firstOrNull()?.lowercase()) {
-            "property", "prop" -> property(sender, args.drop(1), c)
-            "tag" -> tagOn(sender, c.props.tags, args.drop(1))
-            "eject" -> plugin.trains.eject(c)
+            "property", "prop" -> {
+                if (args.size >= 3) needOwner()
+                property(sender, args.drop(1), c)
+            }
+            "tag" -> {
+                if (args.getOrNull(1)?.lowercase() !in listOf(null, "list")) needOwner()
+                tagOn(sender, c.props.tags, args.drop(1))
+            }
+            "eject" -> {
+                needOwner()
+                plugin.trains.eject(c)
+            }
             "destroy", "remove" -> {
-                owned(sender)
+                needOwner()
                 plugin.trains.removeCart(c)
                 msg(sender, "&a車両を一両消しました")
             }
@@ -401,7 +435,7 @@ class TrainCommand(private val plugin: TOROTrain) : TabExecutor {
             "yaw" -> {
                 val yaw = args.getOrNull(1)?.toFloatOrNull() ?: fail("/tt model yaw <度>")
                 c.model = when (current) {
-                    is BlockCartModel -> BlockCartModel(current.name, current.offset, yaw, current.lengthOverride)
+                    is BlockCartModel -> BlockCartModel(current.name, current.offset, yaw, current.lengthOverride, current.extraRotation, current.scale, current.fixedSeats, current.wheelDistance)
                     is ItemCartModel -> ItemCartModel(current.item, current.scale, current.offset, yaw, current.length, current.width, current.height)
                     else -> fail("この車両のモデルは回せません")
                 }
@@ -410,7 +444,7 @@ class TrainCommand(private val plugin: TOROTrain) : TabExecutor {
                 val v = args.drop(1).mapNotNull { it.toFloatOrNull() }.takeIf { it.size == 3 } ?: fail("/tt model offset <x> <y> <z>")
                 val offset = Vector3f(v[0], v[1], v[2])
                 c.model = when (current) {
-                    is BlockCartModel -> BlockCartModel(current.name, offset, current.yaw, current.lengthOverride)
+                    is BlockCartModel -> BlockCartModel(current.name, offset, current.yaw, current.lengthOverride, current.extraRotation, current.scale, current.fixedSeats, current.wheelDistance)
                     is ItemCartModel -> ItemCartModel(current.item, current.scale, offset, current.yaw, current.length, current.width, current.height)
                     else -> fail("この車両のモデルは動かせません")
                 }
@@ -418,9 +452,10 @@ class TrainCommand(private val plugin: TOROTrain) : TabExecutor {
             "length" -> {
                 val length = args.getOrNull(1)?.toDoubleOrNull()?.takeIf { it > 0.1 } ?: fail("/tt model length <長さ>")
                 c.model = when (current) {
-                    is BlockCartModel -> BlockCartModel(current.name, current.offset, current.yaw, length)
+                    is BlockCartModel -> BlockCartModel(current.name, current.offset, current.yaw, length, current.extraRotation, current.scale, current.fixedSeats, current.wheelDistance)
                     is ItemCartModel -> ItemCartModel(current.item, current.scale, current.offset, current.yaw, length, current.width, current.height)
                     is DefaultCartModel -> DefaultCartModel(current.material, length)
+                    is AttachmentCartModel -> current.withLength(length)
                 }
             }
             else -> {
@@ -476,7 +511,7 @@ class TrainCommand(private val plugin: TOROTrain) : TabExecutor {
         if (args.firstOrNull()?.equals("delete", true) == true) {
             need(sender, "torotrain.admin")
             val name = args.getOrNull(1) ?: fail("/tt models delete <名前>")
-            val used = plugin.trains.trains.values.any { t -> t.carts.any { it.model.blockModelName.equals(name, true) } }
+            val used = plugin.trains.trains.values.any { t -> t.carts.any { it.model.usesBlockModel(name) } }
             if (used) fail("モデル $name は走っている列車が使っています")
             if (!plugin.models.delete(name)) fail("モデル $name はありません")
             msg(sender, "&aモデル $name を消しました")
@@ -616,8 +651,8 @@ class TrainCommand(private val plugin: TOROTrain) : TabExecutor {
     override fun onTabComplete(sender: CommandSender, command: Command, alias: String, args: Array<String>): List<String> {
         val subs = listOf(
             "help", "create", "spawn", "save", "saved", "list", "info", "select", "destroy", "destroyall", "speed", "launch",
-            "stop", "reverse", "property", "cart", "dest", "route", "dests", "tag", "name", "split", "enter", "exit", "model",
-            "wand", "pos1", "pos2", "blocks", "models", "track", "signs", "reload", "saveall",
+            "stop", "reverse", "property", "cart", "dest", "route", "routes", "dests", "tag", "name", "split", "enter", "exit", "model",
+            "wand", "pos1", "pos2", "blocks", "models", "track", "signs", "reload", "saveall", "import",
         )
         val last = args.lastOrNull() ?: ""
         val options: List<String> = when (args.size) {
@@ -628,7 +663,9 @@ class TrainCommand(private val plugin: TOROTrain) : TabExecutor {
                 "select" -> listOf("nearest") + plugin.trains.trains.values.map { it.name }
                 "property", "prop" -> PropertyKeys.keys.map { it.name }
                 "cart" -> listOf("property", "tag", "eject", "destroy")
-                "dest", "route" -> plugin.places.destinations.keys.toList() + listOf("none")
+                "dest" -> plugin.places.destinations.keys.toList() + listOf("none")
+                "route" -> plugin.places.destinations.keys.toList() + listOf("none", "load")
+                "import" -> listOf("traincarts")
                 "tag" -> listOf("add", "remove", "clear", "list")
                 "model" -> listOf("default", "blocks", "item", "yaw", "offset", "length")
                 "blocks" -> listOf("capture", "convert", "restore")
@@ -638,6 +675,7 @@ class TrainCommand(private val plugin: TOROTrain) : TabExecutor {
                 else -> emptyList()
             }
             3 -> when (args[0].lowercase()) {
+                "route" -> if (args[1].equals("load", true)) plugin.places.routes.keys.toList() else emptyList()
                 "model" -> if (args[1].equals("blocks", true)) plugin.models.names() else emptyList()
                 "models", "saved" -> if (args[1].equals("delete", true)) (if (args[0] == "models") plugin.models.names() else plugin.saved.names()) else emptyList()
                 "blocks" -> if (args[1].equals("restore", true)) listOf("force") else emptyList()

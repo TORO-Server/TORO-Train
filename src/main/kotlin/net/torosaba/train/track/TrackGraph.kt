@@ -106,7 +106,7 @@ class TrackGraph(val network: TrackNetwork) {
                             val alt = RailSegment.of(block, shape) ?: continue
                             directed(alt, p, dir)?.let { if (it !in result) result += it }
                         }
-                        continue
+                        // 取れる形は平らなものだけなので、坂の分岐器は今の形も候補にする (下へ続ける)
                     }
                     directed(seg, p, dir)?.let { if (it !in result) result += it }
                 }
@@ -180,8 +180,9 @@ class TrackGraph(val network: TrackNetwork) {
             BlockKey.parse(world.uid, body.substringBefore('/'))?.let { k ->
                 world.getChunkAt(k.x shr 4, k.z shr 4)
                 val block = world.getBlockAt(k.x, k.y, k.z)
-                // 感圧板は覚えていた形、レールは今の形
-                if (shape != null) RailSegment.of(block, shape) ?: RailSegment.of(block) else RailSegment.of(block)
+                // 覚えていた形で作る (列車が通った道のまま)。そのブロックで取れない形なら今の形
+                val usable = shape != null && (block.blockData as? Rail)?.shapes?.contains(shape) != false
+                if (usable) RailSegment.of(block, shape) ?: RailSegment.of(block) else RailSegment.of(block)
             }
         }
         id.startsWith("l:") -> BlockKey.parse(world.uid, id.removePrefix("l:"))?.let { k ->

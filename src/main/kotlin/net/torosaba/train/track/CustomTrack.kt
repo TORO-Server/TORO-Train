@@ -244,7 +244,8 @@ class TrackNetwork(private val file: File) {
     /** ノードの線路の向き。決めていなければ、つながっているノードから求める */
     fun directionOf(node: TrackNode): Vector3d {
         node.direction?.let { return Vector3d(it).normalize() }
-        val others = node.links.mapNotNull { nodes[it] }
+        // 同じ場所のノードからは向きが決まらない
+        val others = node.links.mapNotNull { nodes[it] }.filter { it.pos.distanceSquared(node.pos) > 1e-8 }
         return when (others.size) {
             0 -> Vector3d(1.0, 0.0, 0.0)
             1 -> Vector3d(others[0].pos).sub(node.pos).normalize()

@@ -23,7 +23,7 @@ class TrainProperties {
     var coupling = false
     /** 走っている間、まわりのチャンクを読み込んだままにするか */
     var keepChunksLoaded = false
-    /** 乗った人がマスコン (W/S) で運転できるか */
+    /** 乗った人がマスコン (D で入れて W/S/A で操作) で運転できるか */
     var manualControl = true
     /** 線路の終わりで止まらずに、線路から外れて進むか (外れると重力で落ち、地面を滑り、線路に落ちればまた乗る) */
     var derail = true
@@ -96,6 +96,12 @@ class CartProperties {
     val tags = LinkedHashSet<String>()
     var allowEnter = true
     var allowExit = true
+
+    fun copy() = CartProperties().also {
+        it.tags += tags
+        it.allowEnter = allowEnter
+        it.allowExit = allowExit
+    }
 
     fun save(s: ConfigurationSection) {
         s.set("tags", tags.toList())

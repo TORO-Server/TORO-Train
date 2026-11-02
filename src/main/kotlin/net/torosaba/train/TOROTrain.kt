@@ -1,5 +1,6 @@
 package net.torosaba.train
 
+import net.torosaba.train.command.MasconCommand
 import net.torosaba.train.command.TrainCommand
 import net.torosaba.train.compat.TrainCartsImport
 import net.torosaba.train.listener.SignListener
@@ -15,6 +16,7 @@ import net.torosaba.train.track.RailSegment
 import net.torosaba.train.track.TrackGraph
 import net.torosaba.train.track.TrackNetwork
 import net.torosaba.train.train.BlockTrains
+import net.torosaba.train.train.MasconControl
 import net.torosaba.train.train.SavedTrains
 import net.torosaba.train.train.TrainManager
 import net.torosaba.train.util.Text
@@ -40,6 +42,8 @@ class TOROTrain : JavaPlugin() {
     lateinit var models: ModelLibrary
         private set
     lateinit var trains: TrainManager
+        private set
+    lateinit var mascon: MasconControl
         private set
     lateinit var saved: SavedTrains
         private set
@@ -69,6 +73,7 @@ class TOROTrain : JavaPlugin() {
         router = Router(this)
         blockTrains = BlockTrains(this)
         trains = TrainManager(this)
+        mascon = MasconControl(this).also { it.load() }
 
         removeLeftoverEntities()
         try {
@@ -94,6 +99,11 @@ class TOROTrain : JavaPlugin() {
         getCommand("toro-train")?.apply {
             setExecutor(command)
             tabCompleter = command
+        }
+        val masconCommand = MasconCommand(this)
+        getCommand("mascon")?.apply {
+            setExecutor(masconCommand)
+            tabCompleter = masconCommand
         }
         server.scheduler.runTaskTimer(this, Runnable { trains.tick() }, 1L, 1L)
     }

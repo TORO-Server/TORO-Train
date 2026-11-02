@@ -1,6 +1,7 @@
 package net.torosaba.train.signs
 
 import net.torosaba.train.util.BlockKey
+import net.torosaba.train.util.Text
 import org.bukkit.configuration.file.YamlConfiguration
 import java.io.File
 import java.util.Locale
@@ -16,6 +17,9 @@ class NamedPlaces(private val file: File) {
 
     /** 出入口の名前 → 線路のブロック */
     val portals = HashMap<String, BlockKey>()
+
+    /** 名前を付けて保存した経路 (/tt route load で使う) */
+    val routes = HashMap<String, List<String>>()
 
     private var dirty = false
 
@@ -35,35 +39,55 @@ class NamedPlaces(private val file: File) {
 
     fun portal(name: String): BlockKey? = portals[norm(name)]
 
-    /** 看板が消えたとき、その線路のブロックの名前を忘れる */
-    fun removeRail(rail: BlockKey) {
-        var changed = false
-        for (set in destinations.values) changed = set.remove(rail) || changed
-        destinations.values.removeIf { it.isEmpty() }
-        changed = portals.values.removeIf { it == rail } || changed
-        if (changed) dirty = true
+    fun setRoute(name: String, route: List<String>) {
+        if (name.isBlank()) return
+        if (route.isEmpty()) routes.remove(norm(name)) else routes[norm(name)] = route.toList()
+        dirty = true
+    }
+
+    fun route(name: String): List<String>? = routes[norm(name)]
+
+    /** 看板が消えたとき、その看板の行き先の名前を忘れる */
+    fun removeDestination(name: String, rail: BlockKey) {
+        val key = norm(name)
+        val set = destinations[key] ?: return
+        if (set.remove(rail)) dirty = true
+        if (set.isEmpty()) destinations.remove(key)
+    }
+
+    /** 看板が消えたとき、その看板の出入口の名前を忘れる */
+    fun removePortal(name: String, rail: BlockKey) {
+        if (portals[norm(name)] == rail) {
+            portals.remove(norm(name))
+            dirty = true
+        }
     }
 
     fun load() {
         destinations.clear()
         portals.clear()
+        routes.clear()
         if (!file.exists()) return
         val yaml = YamlConfiguration.loadConfiguration(file)
         yaml.getConfigurationSection("destinations")?.let { s ->
             for (name in s.getKeys(false)) {
-                destinations[name] = s.getStringList(name).mapNotNull(::parseKey).toHashSet()
+                destinations[Text.fromYamlKey(name)] = s.getStringList(name).mapNotNull(::parseKey).toHashSet()
             }
         }
         yaml.getConfigurationSection("portals")?.let { s ->
-            for (name in s.getKeys(false)) parseKey(s.getString(name) ?: continue)?.let { portals[name] = it }
+            for (name in s.getKeys(false)) parseKey(s.getString(name) ?: continue)?.let { portals[Text.fromYamlKey(name)] = it }
+        }
+        yaml.getConfigurationSection("routes")?.let { s ->
+            for (name in s.getKeys(false)) routes[Text.fromYamlKey(name)] = s.getStringList(name)
         }
     }
 
     fun saveIfDirty() {
         if (!dirty) return
         val yaml = YamlConfiguration()
-        for ((name, keys) in destinations) yaml.set("destinations.$name", keys.map(::formatKey))
-        for ((name, key) in portals) yaml.set("portals.$name", formatKey(key))
+        for ((name, keys) in destinations) yaml.set("destinations.${Text.toYamlKey(name)}", keys.map(::formatKey))
+        for ((name, key) in portals) yaml.set("portals.${Text.toYamlKey(name)}", formatKey(key))
+        for ((name, route) in routes) yaml.set("routes.${Text.toYamlKey(name)}", route)
         file.parentFile.mkdirs()
         yaml.save(file)
         dirty = false

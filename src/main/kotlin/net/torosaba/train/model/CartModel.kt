@@ -24,6 +24,9 @@ sealed class CartModel {
     /** 写し取ったブロックのモデルなら、その名前 */
     open val blockModelName: String? get() = null
 
+    /** そのブロックのモデルを使っているか (モデルを消してよいかを調べるときに使う) */
+    open fun usesBlockModel(model: String): Boolean = blockModelName.equals(model, ignoreCase = true)
+
     /** 前後の台車の間隔。0 以下なら車両の長さから決める */
     open val wheelDistance: Double get() = -1.0
 
@@ -59,6 +62,7 @@ sealed class CartModel {
                     section.getDouble("width", 1.0),
                     section.getDouble("height", 1.0),
                 )
+                "attachments" -> AttachmentCartModel.load(section)
                 else -> DefaultCartModel(
                     Material.matchMaterial(section.getString("material") ?: "") ?: Material.IRON_BLOCK,
                     section.getDouble("length", 1.25),

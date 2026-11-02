@@ -17,6 +17,15 @@ object Text {
     fun plain(component: Component?): String =
         if (component == null) "" else PlainTextComponentSerializer.plainText().serialize(component)
 
+    /**
+     * 名前を YAML のキーにする。Bukkit の YAML は . を階層の区切りとして読むので、名前の . を別の文字に置き換えて保存する
+     */
+    fun toYamlKey(name: String): String = name.replace('.', YAML_DOT)
+
+    fun fromYamlKey(key: String): String = key.replace(YAML_DOT, '.')
+
+    private const val YAML_DOT = '․'
+
     /** 1 tick あたりのブロック数を km/h にする (1 ブロック = 1 m、1 秒 = 20 tick) */
     fun kmh(blocksPerTick: Double): Double = blocksPerTick * 72.0
 

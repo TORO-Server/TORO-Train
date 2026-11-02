@@ -6,6 +6,7 @@ import net.torosaba.train.track.TrackPath
 import net.torosaba.train.track.TrackSegment
 import net.torosaba.train.util.BlockKey
 import org.bukkit.World
+import org.bukkit.block.Block
 import org.bukkit.entity.Player
 import org.joml.Quaternionf
 import org.joml.Vector3d
@@ -33,8 +34,16 @@ class Train(val id: UUID, var name: String, var path: TrackPath, val props: Trai
             value?.start(this)
         }
 
-    /** マスコンの段 (正: 力行 P1-P5、負: ブレーキ B1-B7、-8: 非常) */
+    /** マスコンの段 (正: 力行 P1-P7、負: ブレーキ B1-B7、-8: 非常) */
     var notch = 0
+
+    /** マスコンを入れて運転しているプレイヤー。いるあいだは看板の制御と最高速度の設定が効かない (保存しない) */
+    var masconDriver: UUID? = null
+
+    val mascon: Boolean get() = masconDriver != null
+
+    /** 駅に止まっているあいだ入れている、看板の周りのレバー。止まるのをやめたら切る */
+    var heldOutput: Block? = null
 
     /** これから通る看板を何枚無視するか */
     var skipSigns = 0
@@ -183,15 +192,6 @@ class Train(val id: UUID, var name: String, var path: TrackPath, val props: Trai
         }
         val index = route.indexOfFirst { it.equals(name, ignoreCase = true) }
         props.destination = route[(index + 1).mod(route.size)]
-    }
-
-    fun tickNotchSpeed(): Double {
-        val p = props
-        return when {
-            notch > 0 -> p.acceleration * notch / 5.0
-            notch < 0 -> -p.deceleration * (if (notch <= -8) 2.0 else -notch / 7.0)
-            else -> 0.0
-        }
     }
 
     fun headRotation(): Quaternionf = carts.firstOrNull()?.rotation ?: Quaternionf()

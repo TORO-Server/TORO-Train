@@ -4,6 +4,7 @@ import net.torosaba.train.TOROTrain
 import net.torosaba.train.model.BlockCartModel
 import net.torosaba.train.track.DirectedSegment
 import net.torosaba.train.track.RailSegment
+import net.torosaba.train.track.TrackBlocks
 import org.bukkit.Bukkit
 import org.bukkit.Location
 import org.bukkit.Material
@@ -136,7 +137,7 @@ class BlockTrains(private val plugin: TOROTrain) {
         // ブロックを消す (線路は残す)。物理の更新をしないので、看板や松明が落ちて物にならない
         for (y in max.blockY downTo min.blockY) for (x in min.blockX..max.blockX) for (z in min.blockZ..max.blockZ) {
             val block = world.getBlockAt(x, y, z)
-            if (block.type.isAir || block.blockData is Rail) continue
+            if (block.type.isAir || TrackBlocks.isTrack(block)) continue
             block.setType(Material.AIR, false)
         }
 
@@ -161,7 +162,7 @@ class BlockTrains(private val plugin: TOROTrain) {
         // 変換で自動で作ったモデルは、ほかで使っていなければ消す
         for (name in names) {
             if (!name.startsWith("train-")) continue
-            val used = plugin.trains.trains.values.any { t -> t.carts.any { it.model.blockModelName == name } } || plugin.saved.usesModel(name)
+            val used = plugin.trains.trains.values.any { t -> t.carts.any { it.model.usesBlockModel(name) } } || plugin.saved.usesModel(name)
             if (!used) plugin.models.delete(name)
         }
         return plans.sumOf { it.count }
@@ -177,6 +178,8 @@ class BlockTrains(private val plugin: TOROTrain) {
             throw IllegalStateException("大きさを変えたモデル ${model.name} はブロックに戻せません")
         }
         val q = Quaternionf(cart.rotation).mul(model.rotation()).mul(block.baseRotation)
+        // ブロックは 90 度ごとの向きでしか置けないので、逆さまのレールの上では戻せない
+        if (q.transform(Vector3f(0f, 1f, 0f)).y < 0) throw IllegalStateException("逆さまの車両はブロックに戻せません")
         val x = q.transform(Vector3f(1f, 0f, 0f))
         val k = ((atan2(-x.z.toDouble(), x.x.toDouble()) / (PI / 2)).roundToInt()).mod(4)
         val snap = Quaternionf().rotateY((k * PI / 2).toFloat())
