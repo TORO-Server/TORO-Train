@@ -50,6 +50,16 @@ track:
   # 列車がぶら下がって走れるようにする。天井の下の面をレールで右クリックすると置ける
   upside-down-rails: true
 
+mascon:
+  # マスコンで出せる最高速度 (ブロック/tick)。P7 の目標速度にもなる
+  max-speed: 1.5
+  # 画面の下の速度の表示の、1 ブロック/tick あたりの km/h (MasconCart と同じ表示なら 80。実際の速さどおりなら 72)
+  display-kmh-per-speed: 80.0
+  # マスコンを入れられるのを、先頭か最後尾の車両の運転席だけにする (false なら MasconCart と同じく、乗っている人なら誰でも)
+  driver-seat-only: false
+  # ふつうのトロッコに乗っていて D を押したとき、そのトロッコを列車に置き換える
+  convert-minecarts: true
+
 signs:
   # 駅の看板の停車時間を書かなかったときの tick 数
   station-default-delay: 100

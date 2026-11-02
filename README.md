@@ -28,9 +28,31 @@ TrainCarts のコードは使わず、Kotlin で一から作っています。
 ### 乗る・運転する
 
 - 車両を右クリックすると、近くの空いている座席に座ります。しゃがむと降ります (降りられない設定にもできます)。
-- 運転席 (先頭か最後尾の車両の、いちばん前かいちばん後ろの座席) では、**W で力行 (P1 - P5)、S でブレーキ (B1 - B7、非常)** のマスコンになります。止まっていて非常ブレーキのときにもう一度 S を押すと、進む向きが反対になります。ジャンプで警笛を鳴らします。
-- 画面の下に、ノッチ・速さ・最高速度・行き先が出ます。
+- 下の「マスコン」のとおりに運転できます。Ctrl (ダッシュ) で警笛を鳴らします。
 - 車両を叩くと、叩いた車両を一両だけ壊します (自分の列車だけ。管理者はすべて)。普通のトロッコの見た目の車両は、トロッコのアイテムが落ちます。最後の一両なら列車ごと消えます。しゃがんで叩くと、壊さずにその列車を選びます。
+
+### マスコン
+
+[MasconCart](https://github.com/TORO-Server/MasconCart) と同じ操作です。乗っているときに次のキーを使います。
+
+| キー | 働き |
+| --- | --- |
+| D | マスコンの ON / OFF (押してから 1 秒は切り替わりません) |
+| W | ノッチを上げる (B7 … B1 → N → P1 … P7) |
+| S | ノッチを下げる (P7 … P1 → N → B1 … B7 → EB) |
+| A | N (ニュートラル) にする |
+| スペース / 素手で右クリック | 止まっているときに進行方向を切り替える (押しっぱなしでは続けて切り替わりません) |
+| W (マスコンが OFF のとき) | 止まっている列車を、見ている向きに押し出して発進する (ふつうのトロッコと同じ) |
+
+- **速さ**: P1 - P7 はそれぞれの目標速度 (最高速度の 7 分の n) まで加速します。P1 だけゆっくりです。N では少しずつ遅くなり、B1 - B7 は段に比例して減速し、EB はその場で止まります。
+- **最高速度**: マスコンが ON のあいだは、列車の `speedlimit` の代わりに `mascon.max-speed` (既定で 1.5 ブロック/tick) まで出せます。OFF にすると元の最高速度に戻ります。
+- **看板**: ON のあいだは看板の制御が効きません。駅に止まらず、信号と分岐器の看板も無視し、分岐はレールの今の形のまま進みます。パワードレールの加速とブレーキ、坂の重力も効きません。`announce`・`sound`・`effect`・`detector` の看板は働き、`mutex` の区間も手前で止まらずに押さえます。前の列車の手前で止まるのは ON のあいだも同じです。
+- **運転できる人**: 1 本の列車を運転できるのは 1 人だけで、ほかの人は OFF になるまで ON にできません。降りる、ログアウトする、連結する、別の列車に切り離されると OFF になります。
+- **ふつうのトロッコ**: 乗っているふつうのトロッコで D を押すと、そのトロッコが列車に置き換わります (`mascon.convert-minecarts`)。OFF にしてもトロッコには戻りません。
+- **`/mascon off`**: 自分だけ D で ON にできなくします (`/mascon on` で戻します)。`plugins/MasconCart/config.yml` があれば、最初の起動でこの設定を引き継ぎます。
+- **画面の下**: ON のあいだ、ノッチと速度が出ます。速度の表示は MasconCart に合わせて 1 ブロック/tick = 80 km/h です (実際の速さどおりにするには `mascon.display-kmh-per-speed` を 72 にします)。
+
+`config.yml` の `mascon.driver-seat-only` を `true` にすると、ON にできるのは先頭か最後尾の車両の運転席 (いちばん前かいちばん後ろの座席) だけになります。
 
 ### 速さの書き方
 
@@ -82,7 +104,7 @@ TrainCarts のコードは使わず、Kotlin で一から作っています。
 | `wait` | 空いているべき距離 | 空いてから待つ秒数 | 前の列車が離れるまで待つ |
 | `mutex` | 区間の名前 | `enter` / `leave` | 入口から出口まで 1 本の列車しか入れない |
 | `teleport` | 移る先の出入口の名前 | この出入口の名前 | 列車を別の場所 (別のワールドでもよい) の出入口へ移す。2 行目に向きを足せる |
-| `spawn` | 保存した列車の名前 | 向き・速さ | 信号が来たら列車を出す |
+| `spawn` | 保存した列車の名前か、TrainCarts の書き方 (`3m`、`2st`、`2(mp)` など) | 向き・速さ | 信号が来たら列車を出す |
 | `destroy` | 条件 (省略可) | | 列車を消す |
 | `reverse` | 条件 (省略可) | | 列車の向きを反対にする |
 | `skip` | 枚数 | 条件 | この先の看板をいくつか無視させる |
@@ -108,7 +130,7 @@ TrainCarts のコードは使わず、Kotlin で一から作っています。
 | `waitdistance` | 前の列車と空ける距離 |
 | `coupling` | ぶつかった列車と連結するか (両方が true のとき) |
 | `keepchunksloaded` | 走っているあいだ周りのチャンクを読み込んだままにするか |
-| `manualcontrol` | マスコンで運転できるか |
+| `manualcontrol` | マスコンで運転できるか (W で押し出す発進も) |
 | `derail` | 線路の終わりで止まらずに外れて進むか (新しい列車の既定は `config.yml` の `train.derail`) |
 | `allowenter` / `allowexit` | 乗れるか・降りられるか (`/tt cart property` で車両ごと) |
 | `invincible` | 管理者以外は (持ち主でも) 消せないか |
@@ -163,12 +185,12 @@ TrainCarts のコードは使わず、Kotlin で一から作っています。
 | コマンド | 内容 |
 | --- | --- |
 | `create [両数] [ブロック] [at ...]` | 列車を出す |
-| `spawn <保存名> [速さ] [at ...]` / `save <名前>` / `saved [delete <名前>]` | 保存した列車 |
+| `spawn <保存名か 3m などの書き方> [速さ] [at ...]` / `save <名前>` / `saved [delete <名前>]` | 保存した列車 |
 | `list` / `info` / `select [名前\|nearest]` | 列車の一覧・情報・選択 |
 | `destroy` / `destroyall [ワールド]` | 列車を消す |
 | `speed <速さ>` / `launch <速さ> [加速度]` / `stop` / `reverse` | 動かす |
 | `property <名前> [値]` / `cart property <名前> [値]` | 設定 |
-| `dest <行き先>` / `route <行き先...>` / `dests` | 行き先と経路 |
+| `dest <行き先>` / `route <行き先...>` / `route load <名前>` / `routes` / `dests` | 行き先と経路 (`route load` は保存した経路) |
 | `tag add\|remove\|clear <タグ>` / `cart tag ...` | タグ |
 | `name <名前>` / `split <何両目から>` | 名前・切り離し |
 | `enter` / `exit` / `cart eject` | 乗る・降りる・降ろす |
@@ -177,13 +199,16 @@ TrainCarts のコードは使わず、Kotlin で一から作っています。
 | `wand` / `pos1` / `pos2` / `blocks capture\|convert\|restore` / `models [delete <名前>]` | ブロックの列車 |
 | `track ...` | 自由な線路 |
 | `signs` / `reload` / `saveall` | 看板の一覧・再読み込み・保存 |
+| `import traincarts` | TrainCarts のデータを引き継ぐ |
+
+`/mascon on|off` は別のコマンドです (上の「マスコン」)。
 
 ## 権限
 
 | 権限 | 既定 | 内容 |
 | --- | --- | --- |
 | `torotrain.command` | 全員 | `/tt` |
-| `torotrain.ride` / `torotrain.drive` | 全員 | 乗る・運転する |
+| `torotrain.ride` / `torotrain.drive` | 全員 | 乗る・マスコンで運転する |
 | `torotrain.place` | 全員 | トロッコを置いて列車にする |
 | `torotrain.destroy` | 全員 | 自分の列車を消す |
 | `torotrain.create` | OP | `/tt create`、`/tt spawn` |
@@ -200,23 +225,38 @@ TrainCarts のコードは使わず、Kotlin で一から作っています。
 | `trains.yml` | 走っている列車 (位置、速さ、車両、設定)。終了時と一定時間ごとに保存 |
 | `saved-trains.yml` | 保存した列車 |
 | `tracks.yml` | 自由な線路のノード |
-| `names.yml` | 行き先と出入口の名前 |
+| `names.yml` | 行き先と出入口の名前、保存した経路 |
+| `mascon.yml` | `/mascon off` にしているプレイヤー |
 | `models/` | ブロックのモデル (`.nbt` と `.yml`) |
 
 線路が変わって列車を元の場所に戻せないときは、覚えていた先頭の位置に最も近い線路に置き直します。ワールドがないなどで戻せない列車は、消さずに `trains.yml` に残します。
 
 ## TrainCarts から移る
 
-TrainCarts を外して TORO-Train を入れると、最初の起動で `plugins/Train_Carts` のデータを引き継ぎます (`traincarts-import.yml` に記録し、2 回目からは引き継ぎません。`/tt import traincarts` でやり直せます)。
+TrainCarts を外して TORO-Train を入れると、最初の起動で `plugins/Train_Carts` のデータを引き継ぎます (`traincarts-import.yml` に記録し、2 回目からは引き継ぎません。`/tt import traincarts` でやり直せます。同じ名前の保存した列車は上書きされます)。前の版で引き継いだことがあれば、新しく読めるようになったものは `/tt import traincarts` で反映されます。
 
-- **保存した列車** (`SavedTrainProperties.yml`) は、同じ名前の保存した列車になります。`spawn` の看板と `/tt spawn` でそのまま出せます。
-- **車体**: WorldEdit のスケマティックの車体 (WE_SCHEMATIC) は、`plugins/WorldEdit/schematics` のファイルを TORO-Train のブロックのモデル (`models/tc-<名前>`) にします。看板の文字などのデータも写します。位置・向き・大きさ・座席・台車の間隔は TrainCarts と同じ計算で置きます。それ以外の車体はトロッコの形になります。
-- **走っていた列車** (`TrainProperties.yml`) は、TrainCarts を外すとふつうのトロッコとしてワールドに残っています。そのトロッコがチャンクとともに読み込まれたときに、TORO-Train の列車に置き換えます。
-- **設定**: 最高速度、`slowDown`、持ち主、タグ、行き先などを引き継ぎます。
+- **保存した列車** (`SavedTrainProperties.yml` と `savedTrainModules/`) は、同じ名前の保存した列車になります。`spawn` の看板と `/tt spawn` でそのまま出せます。ほかの列車を並べただけの別名 (`spawnPattern`) も読みます。
+- **車体**: 取り付けの木 (`model`) をたどって、位置・向き・大きさを TrainCarts と同じ計算で置きます。
+
+| 取り付け | 読み方 |
+| --- | --- |
+| `ENTITY` | トロッコの形 (チェスト付きなどは素材を変える)。トロッコ以外の生き物などは描かない |
+| `WE_SCHEMATIC` | `plugins/WorldEdit/schematics` などのファイル (`.schem` と古い `.schematic`) を、ブロックのモデル (`models/tc-<名前>`) にする。看板の文字などのデータも写す |
+| `BLOCK_DISPLAY` / `ITEM` / `TEXT` | ブロック・アイテム・文字のディスプレイで描く (防具立ての表示のアイテムも、TrainCarts がディスプレイで描くときと同じ大きさとずらし方にする) |
+| `MODEL` | 保存したモデル (`SavedModels.yml` と `savedModelModules/`) を展開する |
+| `SEAT` | 座席 |
+| `SEQUENCER` / `EMPTY` | 描かず、子の取り付けだけを読む |
+| `HITBOX` / `PLATFORM` / `SOUND` / `LIGHT` | 読まない |
+
+- **走っていた列車** (`TrainProperties.yml`) は、TrainCarts を外すとふつうのトロッコとしてワールドに残っています。そのトロッコがチャンクとともに読み込まれたときに、TORO-Train の列車に置き換えます。読み込まれていなかった車両のトロッコは、読み込まれたときに消します。
+- **設定**: `speedLimit`、`slowDown`、`friction`、`gravity`、`keepChunksLoaded`、`wait`、`collision` の `train` (`LINK` なら連結)、`invincible`、`displayName`、車両ごとの行き先・経路・タグ・持ち主・`allowPlayerEnter`・`allowPlayerExit` を引き継ぎます。書いていないものは `DefaultTrainProperties.yml` の `default` の値を使います。`allowManualMovement` は TrainCarts の W で押す機能の設定なので、マスコンの設定には写しません。
+- **行き先と経路**: `destinations.dat` の行き先の名前と、`routes.yml` の経路を引き継ぎます (`/tt route load <名前>`)。
 - **看板**: TrainCarts と同じく、`[train]` は信号があるときだけ、`[+train]` はいつも働きます。`station` (3 行目が停車時間、4 行目が「向き 速さ」)、`property` (3 行目が名前、4 行目が値)、`spawn` (3 行目と 4 行目をつなげた名前) は TrainCarts の書き方のまま働きます。
 - **権限**: TrainCarts の `train.build.*` (看板ごとの `train.build.station` なども) と `train.command.*` を持っている人は、TORO-Train の同じ看板とコマンドを使えます。
 
-TrainCarts に頼るプラグイン (MasconCart など) は動かなくなるので、一緒に外してください。
+TrainCarts に頼るプラグイン (MasconCart など) は動かなくなるので、一緒に外してください。MasconCart の操作は TORO-Train に入っています。
+
+次のデータは読みません: `tickets.yml` (切符)、`detectorregions.dat`、`arrivaltimes.txt`、`trains.groupdata` と、`.zip` のモジュール。設定のうち、TORO-Train に同じ機能のないもの (`enterMessage`、`exitOffset`、`pickUp`、`banking`、`spawnLimit`、`skipOptions`、取り付けのアニメーションなど) は読みません。
 
 ## まだないもの
 
@@ -226,11 +266,13 @@ TrainCarts の次の機能は、まだ作っていません。
 - チェストとアイテムをやりとりする看板 (collect / deposit / crafter など)
 - 切符の仕組み
 - 生き物を乗せること
-- TrainCarts の保存データの読み込み
+
 ## 開発
 
 ```bash
 ./gradlew build
 ```
 
-`build/libs/TORO-Train-<バージョン>.jar` ができます (Kotlin の標準ライブラリはパッケージを移して同梱)。`./gradlew test` で、線路の道のりの計算と、MarumaSign の看板の位置合わせのテストを行います。
+`build/libs/TORO-Train-<バージョン>.jar` ができます (Kotlin の標準ライブラリはパッケージを移して同梱)。`./gradlew test` で、線路の道のりの計算、MarumaSign の看板の位置合わせ、マスコンの速度、TrainCarts の保存形式の読み取りのテストを行います。
+
+本物のサーバーとクライアントでの確認は `tools/verify` にあります。作業の決まりと確認の手順は [AGENTS.md](AGENTS.md) を見てください。

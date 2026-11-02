@@ -61,8 +61,8 @@ class RailSegment private constructor(
     val isSlope: Boolean get() = shape.name.startsWith("ASCENDING")
     val isPlate: Boolean get() = Tag.PRESSURE_PLATES.isTagged(material)
 
-    // 感圧板の十字路は形が 2 つあるので、形も覚える
-    override val id: String get() = if (isPlate) "r:$x,$y,$z/${shape.name}" else "r:$x,$y,$z"
+    // 形も覚える。感圧板の十字路は形が 2 つあり、レールは通ったあとで分岐器の形が変わることがある
+    override val id: String get() = "r:$x,$y,$z/${shape.name}"
 
     private fun port(face: BlockFace, high: Boolean) =
         Vector3d(x + 0.5 + face.modX * 0.5, baseY + if (high) 1.0 else 0.0, z + 0.5 + face.modZ * 0.5)

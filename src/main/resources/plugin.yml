@@ -12,6 +12,9 @@ commands:
     aliases: [ tt, torotrain ]
     usage: /<command> help
     permission: torotrain.command
+  mascon:
+    description: マスコンの操作を使うかを決める
+    usage: /<command> <on|off>
 
 permissions:
   torotrain.command:
@@ -21,7 +24,7 @@ permissions:
     description: 列車に乗る
     default: true
   torotrain.drive:
-    description: 運転席でマスコン (W/S) を操作する
+    description: マスコン (D で入れ、W/S/A で操作) で運転する
     default: true
   torotrain.place:
     description: トロッコを線路に置いて列車にする

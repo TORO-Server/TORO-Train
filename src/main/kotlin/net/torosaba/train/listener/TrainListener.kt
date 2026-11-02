@@ -32,6 +32,9 @@ class TrainListener(private val plugin: TOROTrain) : Listener {
         if (event.hand != EquipmentSlot.HAND) return
         val player = event.player
         val train = cart.train
+        plugin.debug { "${player.name} が ${train.name} の当たり判定を右クリックしました" }
+        // 乗っている人が見ているのはたいてい自分の車両の当たり判定なので、マスコンの右クリックはここでも受ける
+        if (reverseByClick(player)) return
         if (player.vehicle?.let { plugin.trains.entityCarts[it.uniqueId] } != null) return
         if (!player.hasPermission("torotrain.ride")) return
         if (!train.props.allowEnter || !cart.props.allowEnter) {
@@ -72,13 +75,14 @@ class TrainListener(private val plugin: TOROTrain) : Listener {
     fun onDismount(event: EntityDismountEvent) {
         if (plugin.trains.internalDismount) return
         val player = event.entity as? Player ?: return
+        plugin.debug { "${player.name} が ${event.dismounted.type} から降りようとしました" }
         val cart = plugin.trains.entityCarts[event.dismounted.uniqueId] ?: return
         val visual = cart.visual ?: return
         if (!visual.isSeatEntity(event.dismounted)) return
         val canExit = cart.train.props.allowExit && cart.props.allowExit
         if (!canExit && !player.hasPermission("torotrain.admin") && player.isOnline && !player.isDead) {
             event.isCancelled = true
-            player.sendActionBar(Text.color("&cここでは降りられません"))
+            plugin.mascon.notice(player, "&cここでは降りられません")
             return
         }
         // 車体の中に埋まらないよう、横に降ろす
@@ -91,20 +95,36 @@ class TrainListener(private val plugin: TOROTrain) : Listener {
 
     @EventHandler
     fun onInput(event: PlayerInputEvent) {
-        plugin.trains.onInput(event.player, event.input)
+        plugin.mascon.onInput(event.player, event.input)
+    }
+
+    // マスコンを入れている人が素手で右クリックしたら、止まっているときだけ進む向きを変える
+    private fun reverseByClick(player: Player): Boolean {
+        val train = plugin.trains.cartOf(player)?.train ?: return false
+        if (train.masconDriver != player.uniqueId || !player.inventory.itemInMainHand.type.isAir) return false
+        plugin.mascon.reverseIfStopped(player, train)
+        return true
     }
 
     @EventHandler
     fun onQuit(event: PlayerQuitEvent) {
-        plugin.trains.forgetInput(event.player)
+        plugin.mascon.forget(event.player)
         plugin.trains.selected.remove(event.player.uniqueId)
         plugin.blockTrains.selections.remove(event.player.uniqueId)
     }
 
+    // isInteractable は階段なども含むので非推奨だが、ここでは MasconCart と同じく開けられそうなブロックを避けるだけ
+    @Suppress("DEPRECATION")
     @EventHandler(priority = EventPriority.HIGH)
     fun onInteract(event: PlayerInteractEvent) {
         if (event.hand != EquipmentSlot.HAND) return
         val player = event.player
+        if ((event.action == Action.RIGHT_CLICK_AIR || event.action == Action.RIGHT_CLICK_BLOCK) &&
+            event.clickedBlock?.type?.isInteractable != true && reverseByClick(player)
+        ) {
+            event.isCancelled = true
+            return
+        }
         val block = event.clickedBlock ?: return
         val item = event.item
 
@@ -136,7 +156,7 @@ class TrainListener(private val plugin: TOROTrain) : Listener {
             train.props.owners += player.uniqueId
             plugin.trains.selected[player.uniqueId] = train.id
             if (player.gameMode != org.bukkit.GameMode.CREATIVE) item.amount -= 1
-            player.sendActionBar(Text.color("&a列車 ${train.name} を置きました (右クリックで乗車、W/S で運転)"))
+            player.sendActionBar(Text.color("&a列車 ${train.name} を置きました (右クリックで乗車、D でマスコン)"))
         }
     }
 }

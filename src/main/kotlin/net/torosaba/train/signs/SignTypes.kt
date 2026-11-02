@@ -51,6 +51,9 @@ abstract class SignType(vararg names: String) {
 
     abstract val usage: String
 
+    /** マスコンで運転している列車には働かないか (列車を動かさない案内や検知の看板だけ false) */
+    open val ignoredInMascon: Boolean get() = true
+
     /** 置いたときに確かめる。だめなら理由を返す */
     open fun validate(sign: ActionSign): String? = null
 
@@ -59,6 +62,9 @@ abstract class SignType(vararg names: String) {
 
     /** 列車か車両が線路のブロックから出たとき */
     open fun onLeave(ctx: SignContext) {}
+
+    /** 信号の変化で働く看板か */
+    open val reactsToPower: Boolean get() = false
 
     /** 看板のレッドストーンの信号が変わったとき */
     open fun onPower(plugin: TOROTrain, sign: ActionSign, powered: Boolean) {}
@@ -237,6 +243,7 @@ object Station : SignType("station", "st") {
             StopAfter(remaining),
             SignTypes.Run { t ->
                 SignTypes.output(sign.block, true)
+                t.heldOutput = sign.block
                 if (name.isNotBlank()) {
                     val title = Title.title(Text.color("&f$name"), Text.color("&7到着"),
                         Title.Times.times(Duration.ofMillis(200), Duration.ofSeconds(2), Duration.ofMillis(500)))
@@ -244,7 +251,10 @@ object Station : SignType("station", "st") {
                 }
             },
             WaitAction(delay, "停車中", if (power) ({ sign.isPowered() }) else null),
-            SignTypes.Run { SignTypes.output(sign.block, false) },
+            SignTypes.Run { t ->
+                SignTypes.output(sign.block, false)
+                t.heldOutput = null
+            },
             LaunchAction(launchSpeed, null, dir),
         )
     }
@@ -272,9 +282,15 @@ object Station : SignType("station", "st") {
         val sign = ctx.sign
         train.action = SignTypes.chain(
             StopAfter(remaining),
-            if (delay > 0) SignTypes.Run { SignTypes.output(sign.block, true) } else null,
+            if (delay > 0) SignTypes.Run { t ->
+                SignTypes.output(sign.block, true)
+                t.heldOutput = sign.block
+            } else null,
             WaitAction(delay, "停車中", null),
-            if (delay > 0) SignTypes.Run { SignTypes.output(sign.block, false) } else null,
+            if (delay > 0) SignTypes.Run { t ->
+                SignTypes.output(sign.block, false)
+                t.heldOutput = null
+            } else null,
             LaunchAction(launchSpeed, null, dir),
         )
     }
@@ -517,6 +533,9 @@ object WaitSign : SignType("wait") {
 object Mutex : SignType("mutex") {
     override val usage = "3 行目: 区間の名前 / 4 行目: enter (入口) か leave (出口)"
 
+    // マスコンの列車は手前で止まらないが、ほかの列車が入ってこないよう区間は押さえる
+    override val ignoredInMascon get() = false
+
     override fun validate(sign: ActionSign) = if (sign.line3.isBlank()) "3 行目に区間の名前を書いてください" else null
 
     private fun isLeave(sign: ActionSign) = sign.line4.equals("leave", true) || sign.line4.equals("exit", true)
@@ -537,6 +556,8 @@ object Mutex : SignType("mutex") {
 object Announce : SignType("announce", "message", "msg") {
     override val usage = "3, 4 行目: 文章。2 行目に title を足すと画面の中央に出す"
 
+    override val ignoredInMascon get() = false
+
     override fun onEnter(ctx: SignContext) {
         val text = Text.color(ctx.sign.text34)
         val title = ctx.sign.args.any { it.equals("title", true) }
@@ -550,6 +571,8 @@ object Announce : SignType("announce", "message", "msg") {
 /** 音を鳴らす。3 行目: 音の名前 / 4 行目: 音量 高さ。2 行目に world と書くと周りにも聞こえる */
 object SoundSign : SignType("sound", "playsound") {
     override val usage = "3 行目: 音の名前 (block.note_block.bell など) / 4 行目: 音量 高さ"
+
+    override val ignoredInMascon get() = false
 
     override fun validate(sign: ActionSign) = if (Key.parseable(sign.line3.lowercase())) null else "3 行目の音の名前が正しくありません"
 
@@ -570,6 +593,8 @@ object SoundSign : SignType("sound", "playsound") {
 /** パーティクルを出す。3 行目: 種類 / 4 行目: 数 */
 object Effect : SignType("effect", "particle") {
     override val usage = "3 行目: パーティクルの種類 (cloud など) / 4 行目: 数"
+
+    override val ignoredInMascon get() = false
 
     private fun particle(name: String) = runCatching { Particle.valueOf(name.uppercase(Locale.ROOT)) }.getOrNull()
 
@@ -607,6 +632,8 @@ object Spawn : SignType("spawn", "spawner") {
 
     override fun validate(sign: ActionSign) = if (sign.line3.isBlank()) "3 行目に保存した列車の名前を書いてください" else null
 
+    override val reactsToPower get() = true
+
     override fun onPower(plugin: TOROTrain, sign: ActionSign, powered: Boolean) {
         if (!powered) return
         val rail = plugin.signIndex.railFor(sign.block) ?: return
@@ -620,34 +647,11 @@ object Spawn : SignType("spawn", "spawner") {
         } else if (sign.line4.isNotBlank() && plugin.saved.get(joined) != null) {
             plugin.trains.spawnSaved(joined, rail, null, null)
         } else {
-            spawnLetters(plugin, sign.line3 + sign.line4, rail, face, speed)
+            // 保存した列車の名前でなければ、TrainCarts の spawn の書き方 (3m、2st など) として読む
+            // 長い書き方は 2 行に分けて書けるので、つなげて読めなければ 3 行目だけを読む (4 行目は向きと速さ)
+            plugin.trains.spawnPattern(joined, rail, null, null) ?: plugin.trains.spawnPattern(sign.line3, rail, face, speed)
         }
         plugin.debug { if (train != null) "看板 (${sign.key}) が ${train.name} を出しました" else "看板 (${sign.key}) は列車を出せませんでした (保存した列車 ${sign.line3} か、線路 ${rail.x},${rail.y},${rail.z} がない)" }
-    }
-
-    /**
-     * TrainCarts と同じく、保存した列車の名前でなければ 1 文字ずつ車両の種類として読む
-     * (m: トロッコ、s: チェスト付き、f: かまど付き、t: TNT 付き、h: ホッパー付き)。読めない文字があれば出さない
-     */
-    private fun spawnLetters(plugin: TOROTrain, text: String, rail: Block, face: BlockFace?, speed: Double?): Train? {
-        val spec = text.trim().lowercase(Locale.ROOT)
-        if (spec.isEmpty()) return null
-        val materials = spec.map { c ->
-            when (c) {
-                'm' -> Material.IRON_BLOCK
-                's' -> Material.CHEST
-                'f', 'p' -> Material.FURNACE
-                't' -> Material.TNT
-                'h' -> Material.HOPPER
-                else -> return null
-            }
-        }
-        val models = materials.map { net.torosaba.train.model.DefaultCartModel(it) }
-        val length = models.sumOf { it.length(plugin.models) + plugin.settings.cartGap }
-        val path = plugin.trains.pathAt(rail, face, length) ?: return null
-        val train = plugin.trains.create(path, models)
-        if (speed != null && speed > 0) train.action = LaunchAction(speed, null)
-        return train
     }
 }
 
@@ -688,6 +692,8 @@ object Skip : SignType("skip") {
 /** 列車がいるあいだ、看板の周りのレバーを入れる。3 行目: 条件 (省略可) */
 object Detector : SignType("detector", "detect") {
     override val usage = "3 行目: 条件 (省略可)。列車がいるあいだ周りのレバーを入れる"
+
+    override val ignoredInMascon get() = false
 
     override fun onEnter(ctx: SignContext) {
         if (SignTypes.matches(ctx.train, ctx.cart, ctx.sign.line3)) SignTypes.output(ctx.sign.block, true)

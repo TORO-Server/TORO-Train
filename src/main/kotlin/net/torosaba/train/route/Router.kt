@@ -32,23 +32,29 @@ class Router(private val plugin: TOROTrain) {
      */
     private fun reaches(seg: DirectedSegment, destination: String): Boolean {
         val track = seg.segment as? BlockTrackSegment
-            ?: return seg.segment.names().any { it.equals(destination, ignoreCase = true) }
-        val key = track.key
-        if (plugin.places.isDestination(destination, key)) return true
-        for (block in plugin.signIndex.signsFor(key)) {
-            val sign = ActionSign.parse(block) ?: continue
-            if ((sign.type == "station" || sign.type == "st" || sign.type == "destination" || sign.type == "dest") &&
-                sign.line3.equals(destination, ignoreCase = true)
-            ) {
-                plugin.places.addDestination(sign.line3, key)
-                return true
+        if (track == null && seg.segment.names().any { it.equals(destination, ignoreCase = true) }) return true
+        // 自由な線路の下の看板も働くので、区間が通るブロックをすべて見る
+        val keys = track?.let { listOf(it.key) } ?: ArrayList<BlockKey>().also { seg.triggerBlocks(0.0, seg.length, it) }
+        for (key in keys) {
+            for (block in plugin.signIndex.signsFor(key)) {
+                val sign = ActionSign.parse(block) ?: continue
+                if ((sign.type == "station" || sign.type == "st" || sign.type == "destination" || sign.type == "dest") &&
+                    sign.line3.equals(destination, ignoreCase = true)
+                ) {
+                    plugin.places.addDestination(sign.line3, key)
+                    return true
+                }
             }
+            // 覚えていても看板がなければ、名前が変わったか看板が壊れたので忘れる
+            if (plugin.places.isDestination(destination, key)) plugin.places.removeDestination(destination, key)
         }
         return false
     }
 
-    private fun isSwitchable(key: BlockKey): Boolean = plugin.signIndex.signsOfType(key, "switcher").isNotEmpty() ||
-        plugin.signIndex.signsOfType(key, "switch").isNotEmpty()
+    // 先の線路を調べるときに向きを変えられる分岐器か (TrainManager.prepareSwitches と同じ条件)
+    private fun isSwitchable(key: BlockKey): Boolean =
+        (plugin.signIndex.signsOfType(key, "switcher") + plugin.signIndex.signsOfType(key, "switch"))
+            .any { it.scope == ActionSign.Scope.TRAIN && it.isActive() }
 
     /** start から行き先までの道のり。たどり着けなければ null */
     fun distance(start: DirectedSegment, destination: String): Double? {

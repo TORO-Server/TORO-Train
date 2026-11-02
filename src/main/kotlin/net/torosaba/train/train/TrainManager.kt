@@ -1,7 +1,5 @@
 package net.torosaba.train.train
 
-import net.kyori.adventure.key.Key
-import net.kyori.adventure.sound.Sound
 import net.torosaba.train.TOROTrain
 import net.torosaba.train.model.CartModel
 import net.torosaba.train.render.CartVisual
@@ -63,7 +61,6 @@ class TrainManager(private val plugin: TOROTrain) {
     private val chunkTickets = HashMap<UUID, Set<Pair<UUID, Long>>>()
     // 保存されていたが、ワールドがないなどで作れなかった列車 (消さずに書き戻す)
     private val pendingRaw = HashMap<String, Map<String, Any?>>()
-    private val lastInput = HashMap<UUID, org.bukkit.Input>()
     private var tick = 0L
 
     private val settings get() = plugin.settings
@@ -91,7 +88,9 @@ class TrainManager(private val plugin: TOROTrain) {
                 if (cart.visual == null) cart.visual = CartVisual(plugin, cart)
                 cart.visual!!.update()
             }
-            if (tick % 4 == 0L) showDriverHud(train)
+            // 見た目を動かしたあとに調べる (ワールドを越えて移った乗客は、見た目を作るときに座り直すので)
+            plugin.mascon.checkDriver(train)
+            if (tick % 2 == 0L) plugin.mascon.showHud(train)
         }
         if (tick % 20 == 0L) updateChunkTickets()
         if (settings.autosaveTicks > 0 && tick % settings.autosaveTicks == 0L) saveAll()
@@ -115,22 +114,22 @@ class TrainManager(private val plugin: TOROTrain) {
             return
         }
 
-        // 1. 運転
-        val driver = driverOf(train)
-        if (driver == null) train.notch = 0
-        val manual = driver != null && p.manualControl && train.action == null
-        if (manual) {
-            train.speed += train.tickNotchSpeed()
+        // 1. マスコン。速さはノッチだけで決まり、摩擦・重力・パワードレール・駅などの動作は効かない
+        val mascon = train.mascon
+        val masconLimit = min(settings.masconMaxSpeed, settings.maxSpeed)
+        if (mascon) {
+            train.action = null
             train.resumeSpeed = 0.0
+            train.speed = MasconProfile.update(train.speed, train.notch, 1.0 / 20.0, masconLimit)
         }
 
         // 2. 摩擦・重力・パワードレール
         val action = train.action
-        if (action == null || !action.holdsSpeed) {
+        if (!mascon && (action == null || !action.holdsSpeed)) {
             train.speed *= (1 - p.friction)
             if (p.gravity) train.speed -= settings.slopeGravity * slope(train)
             poweredRails(train)
-            if (!manual && train.resumeSpeed > train.speed) {
+            if (train.resumeSpeed > train.speed) {
                 train.speed = min(train.resumeSpeed, train.speed + p.acceleration)
                 if (train.speed >= train.resumeSpeed - 1e-6) train.resumeSpeed = 0.0
             }
@@ -144,9 +143,11 @@ class TrainManager(private val plugin: TOROTrain) {
             current = current.then
             train.action = current
         }
+        // 駅に止まるのをやめた (発車した、マスコンを入れた など) ら、駅のレバーを切る
+        if (train.heldOutput != null && train.action !is WaitAction) releaseOutput(train)
 
         // 4. 最高速度
-        val limit = min(p.speedLimit, settings.maxSpeed)
+        val limit = if (mascon) masconLimit else min(p.speedLimit, settings.maxSpeed)
         if (train.speed > limit) train.speed = max(limit, train.speed - p.deceleration * 2)
         if (train.speed < 0) {
             if (train.action == null && p.gravity) {
@@ -164,7 +165,7 @@ class TrainManager(private val plugin: TOROTrain) {
         val cap = obstacleCap(train)
         if (train.removed) return
         if (train.speed > cap) {
-            if (!manual && train.action == null) train.resumeSpeed = max(train.resumeSpeed, train.speed)
+            if (!mascon && train.action == null) train.resumeSpeed = max(train.resumeSpeed, train.speed)
             train.speed = cap
         }
 
@@ -332,23 +333,28 @@ class TrainManager(private val plugin: TOROTrain) {
         }
     }
 
-    /** 分岐で進む向き。行き先があれば経路探索で、なければ既定の選び方 */
+    /** 分岐で進む向き。行き先があれば経路探索で、なければ既定の選び方 (マスコンで運転している列車は線路の形のまま) */
     private fun chooserFor(train: Train): Chooser? {
+        if (train.mascon) return null
         val dest = train.props.destination ?: return null
         return Chooser { options -> plugin.router.choose(options, dest) }
     }
 
     /** 列車がこれから通る分岐器の向きを、入る前に変えておく */
     private fun prepareSwitches(train: Train) {
+        if (train.mascon) return
         val look = max(2.0, train.speed * 4 + 1.5)
         val chooser = chooserFor(train)
         val next = { seg: DirectedSegment -> graph.next(seg, chooser) }
-        repeat(3) {
+        val ahead = HashSet<BlockKey>()
+        for (attempt in 0 until 3) {
             var changed = false
+            ahead.clear()
             train.path.scanAhead(look, next) { seg, start ->
                 if (start <= 0) return@scanAhead true
                 val rail = seg.segment as? RailSegment ?: return@scanAhead true
                 val key = rail.key
+                ahead += key
                 val lock = switchLocks[key]
                 if (lock != null && lock != train.id) return@scanAhead true
                 val sign = plugin.signIndex.signsFor(key).mapNotNull { ActionSign.parse(it) }
@@ -361,8 +367,16 @@ class TrainManager(private val plugin: TOROTrain) {
                 }
                 true
             }
-            if (!changed) return
+            if (!changed) break
         }
+        // 折り返すなどして、もう通らない分岐器は放す (押さえたままだと、ほかの列車が向きを変えられなくなる)
+        if (switchLocks.isNotEmpty()) {
+            switchLocks.entries.removeIf { (key, id) -> id == train.id && key !in ahead && key !in train.occupied }
+        }
+    }
+
+    fun releaseSwitchLocks(train: Train) {
+        switchLocks.values.removeIf { it == train.id }
     }
 
     /** 前の列車や信号の手前で止まれる速さ */
@@ -393,7 +407,7 @@ class TrainManager(private val plugin: TOROTrain) {
                     train.blockedBy = "前の列車 (${other.displayName()})"
                     return@scanAhead false
                 }
-                if (start < 0) continue
+                if (start < 0 || train.mascon) continue
                 for (signBlock in plugin.signIndex.signsFor(key)) {
                     val sign = ActionSign.parse(signBlock) ?: continue
                     if (sign.scope != ActionSign.Scope.TRAIN) continue
@@ -453,7 +467,8 @@ class TrainManager(private val plugin: TOROTrain) {
             val swept = HashSet(now)
             if (moved > 0) collectBlocks(train.path, cart.frontDistance, cart.frontDistance + cart.length + moved, swept)
             val entered = swept - cart.occupied
-            val left = cart.occupied - now
+            // 1 tick の間に通り過ぎたブロックは、入って出たことにする (入ったままにすると検知のレバーが切れない)
+            val left = (cart.occupied + swept) - now
             cart.occupied.clear()
             cart.occupied += now
             nowTrain += now
@@ -461,7 +476,7 @@ class TrainManager(private val plugin: TOROTrain) {
             if (entered.isNotEmpty() || left.isNotEmpty()) cartEvents += Triple(cart, entered, left)
         }
         val trainEntered = sweptTrain - prevTrain
-        val trainLeft = prevTrain - nowTrain
+        val trainLeft = (prevTrain + sweptTrain) - nowTrain
         train.occupied.clear()
         train.occupied += nowTrain
 
@@ -516,7 +531,10 @@ class TrainManager(private val plugin: TOROTrain) {
             val sign = ActionSign.parse(block) ?: continue
             if (sign.scope != scope) continue
             val type = SignTypes.find(sign.type) ?: continue
-            if (type != Blocker && type != Mutex && !sign.isActive()) continue
+            // マスコンで運転している列車には、案内と検知の看板だけが働く
+            if (train.mascon && type.ignoredInMascon) continue
+            // 出るときは、信号が変わっていても必ず働かせる (入ったときに入れたレバーを切るため)
+            if (enter && type != Blocker && type != Mutex && !sign.isActive()) continue
             if (enter && cart == null && train.skipSigns > 0 && type.name != "skip") {
                 train.skipSigns--
                 continue
@@ -550,69 +568,6 @@ class TrainManager(private val plugin: TOROTrain) {
             true
         }
         return clear
-    }
-
-    // ---------- 運転 ----------
-
-    /** 運転席に座っているプレイヤー */
-    fun driverOf(train: Train): Player? {
-        for (cart in listOfNotNull(train.carts.firstOrNull(), train.carts.lastOrNull())) {
-            val visual = cart.visual ?: continue
-            for (player in visual.passengers()) {
-                if (visual.seatOf(player)?.driver == true && player.hasPermission("torotrain.drive")) return player
-            }
-        }
-        return null
-    }
-
-    /** マスコンの操作 (乗っているプレイヤーの W/S/ジャンプ) */
-    fun onInput(player: Player, input: org.bukkit.Input) {
-        val previous = lastInput.put(player.uniqueId, input)
-        val vehicle = player.vehicle ?: return
-        val cart = entityCarts[vehicle.uniqueId] ?: return
-        val train = cart.train
-        if (driverOf(train) != player || !train.props.manualControl || train.derailed) return
-        val forward = input.isForward && previous?.isForward != true
-        val backward = input.isBackward && previous?.isBackward != true
-        val jump = input.isJump && previous?.isJump != true
-        if (forward) {
-            if (train.notch < 5) train.notch++
-            train.action = null
-        }
-        if (backward) {
-            if (train.notch <= -8 && train.speed < 1e-3) {
-                train.reverse()
-                train.notch = 0
-                player.sendActionBar(Text.color("&e進行方向を反対にしました"))
-            } else if (train.notch > -8) {
-                train.notch--
-            }
-            train.action = null
-        }
-        if (jump) {
-            val sound = Sound.sound(Key.key("minecraft:block.note_block.didgeridoo"), Sound.Source.MASTER, 3f, 0.7f)
-            val c = cart.position
-            train.world.playSound(sound, c.x, c.y, c.z)
-        }
-    }
-
-    fun forgetInput(player: Player) = lastInput.remove(player.uniqueId)
-
-    private fun notchText(notch: Int) = when {
-        notch > 0 -> "&aP$notch"
-        notch == 0 -> "&fN"
-        notch <= -8 -> "&4EB"
-        else -> "&cB${-notch}"
-    }
-
-    private fun showDriverHud(train: Train) {
-        val driver = driverOf(train) ?: return
-        if (!train.props.manualControl) return
-        val dest = train.props.destination?.let { " &7行先 &f$it" } ?: ""
-        val state = train.action?.describe()?.let { " &7| &e$it" } ?: train.blockedBy?.let { " &7| &c$it" } ?: ""
-        driver.sendActionBar(Text.color(
-            "${notchText(train.notch)} &f${Text.speed(train.speed)} &7(制限 ${Text.speed(train.props.speedLimit)})$dest$state",
-        ))
     }
 
     // ---------- 作る・消す・つなぐ ----------
@@ -678,13 +633,50 @@ class TrainManager(private val plugin: TOROTrain) {
         val length = models.sumOf { it.length(plugin.models) + settings.cartGap }
         val path = pathAt(block, face, length, look) ?: return null
         val props = defaultProps().also { it.copyFrom(template.props) }
-        val train = create(path, models, null, props, template.carts.map { it.second })
+        // 車両の設定は写して渡す (同じものを渡すと、1 本のタグの変更が同じ保存名のすべての列車に移る)
+        val train = create(path, models, null, props, template.carts.map { it.second.copy() })
+        if (speed != null && speed > 0) train.action = LaunchAction(speed, null)
+        return train
+    }
+
+    /**
+     * TrainCarts の spawn の書き方 (3m、2st など) で列車を出す。保存した列車の名前も並べられる。
+     * 読めないときや線路がないときは null
+     */
+    fun spawnPattern(text: String, block: Block, face: BlockFace?, speed: Double?, look: Vector3d? = null): Train? {
+        val items = SpawnPattern.parse(text.trim().lowercase()) { plugin.saved.matchPrefix(it) } ?: return null
+        if (items.isEmpty()) return null
+        val models = ArrayList<CartModel>()
+        val cartProps = ArrayList<CartProperties?>()
+        var props: TrainProperties? = null
+        for (item in items) {
+            when (item) {
+                is SpawnPattern.Vanilla -> {
+                    models += net.torosaba.train.model.DefaultCartModel(item.material())
+                    cartProps += null
+                }
+                is SpawnPattern.Saved -> {
+                    val template = plugin.saved.get(item.name) ?: return null
+                    if (props == null) props = defaultProps().also { it.copyFrom(template.props) }
+                    for ((model, cart) in template.carts) {
+                        models += model
+                        cartProps += cart.copy()
+                    }
+                }
+            }
+        }
+        val length = models.sumOf { it.length(plugin.models) + settings.cartGap }
+        val path = pathAt(block, face, length, look) ?: return null
+        val train = create(path, models, null, props, cartProps)
         if (speed != null && speed > 0) train.action = LaunchAction(speed, null)
         return train
     }
 
     fun destroy(train: Train) {
         if (train.removed) return
+        // 消える前に、乗っていたブロックの検知のレバーを切る
+        leaveAll(train)
+        releaseOutput(train)
         train.removed = true
         for (cart in train.carts) {
             val riders = cart.passengers()
@@ -703,6 +695,17 @@ class TrainManager(private val plugin: TOROTrain) {
         selected.values.removeIf { it == train.id }
     }
 
+    // 列車が今いるブロックの看板に「出た」と知らせる (列車が消える・別の場所へ移るとき)
+    private fun leaveAll(train: Train) {
+        for (cart in train.carts) for (key in cart.occupied) fireSigns(train, cart, key, enter = false)
+        for (key in train.occupied) fireSigns(train, null, key, enter = false)
+    }
+
+    private fun releaseOutput(train: Train) {
+        train.heldOutput?.let { SignTypes.output(it, false) }
+        train.heldOutput = null
+    }
+
     /** 車両を一両だけ消す。最後の一両なら列車ごと消える。残りの車両は前へ詰める */
     fun removeCart(cart: Cart) {
         val train = cart.train
@@ -718,10 +721,12 @@ class TrainManager(private val plugin: TOROTrain) {
             exits.forEach { (p, loc) -> p.teleport(loc) }
         }
         cart.visual = null
+        for (key in cart.occupied) fireSigns(train, cart, key, enter = false)
         train.carts.remove(cart)
         train.layout()
         train.computePoses()
-        initOccupancy(train)
+        // 詰めて空いたブロックの看板にも知らせる
+        updateOccupancy(train, 0.0)
     }
 
     fun destroyAll(world: World?): Int {
@@ -740,6 +745,8 @@ class TrainManager(private val plugin: TOROTrain) {
     /** 列車 a の先頭を、列車 b の端に連結する */
     fun couple(a: Train, b: Train) {
         if (a === b || a.removed || b.removed) return
+        plugin.mascon.stop(a)
+        plugin.mascon.stop(b)
         val aHead = a.path.locate(0.0).point()
         val bHead = b.path.locate(0.0).point()
         val bTail = b.path.locate(b.length()).point()
@@ -763,9 +770,11 @@ class TrainManager(private val plugin: TOROTrain) {
         b.speed = 0.0
         b.resumeSpeed = 0.0
         b.action = null
+        releaseOutput(a)
         a.removed = true
         trains.remove(a.id)
         plugin.mutexes.releaseAll(a.id)
+        releaseSwitchLocks(a)
         releaseTickets(a.id)
         selected.replaceAll { _, id -> if (id == a.id) b.id else id }
         b.computePoses()
@@ -808,6 +817,8 @@ class TrainManager(private val plugin: TOROTrain) {
             cart.visual?.despawn()
             r
         }
+        leaveAll(train)
+        releaseOutput(train)
         for (key in train.occupied) detectorRail(key, false)
         train.path = path
         train.freeVelocity = null
@@ -861,16 +872,21 @@ class TrainManager(private val plugin: TOROTrain) {
             }
             val have = chunkTickets[train.id] ?: emptySet()
             for ((w, k) in want - have) Bukkit.getWorld(w)?.getChunkAt(chunkX(k), chunkZ(k))?.addPluginChunkTicket(plugin)
-            for ((w, k) in have - want) Bukkit.getWorld(w)?.getChunkAt(chunkX(k), chunkZ(k))?.removePluginChunkTicket(plugin)
             chunkTickets[train.id] = want
+            // チャンクの予約はプラグインで 1 つなので、ほかの列車がまだ使っているチャンクは残す
+            val gone = have - want
+            if (gone.isNotEmpty()) removeTickets(gone - chunkTickets.values.flatten().toSet())
         }
     }
 
     private fun releaseTickets(train: UUID) {
         val have = chunkTickets.remove(train) ?: return
         // ほかの列車がまだ使っているチャンクは残す
-        val inUse = chunkTickets.values.flatten().toSet()
-        for ((w, k) in have - inUse) {
+        removeTickets(have - chunkTickets.values.flatten().toSet())
+    }
+
+    private fun removeTickets(chunks: Set<Pair<UUID, Long>>) {
+        for ((w, k) in chunks) {
             val world = Bukkit.getWorld(w) ?: continue
             if (world.isChunkLoaded(chunkX(k), chunkZ(k))) world.getChunkAt(chunkX(k), chunkZ(k)).removePluginChunkTicket(plugin)
         }

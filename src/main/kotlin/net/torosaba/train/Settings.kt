@@ -33,6 +33,15 @@ class Settings(c: FileConfiguration) {
     /** 天井に付けた逆さまのレールを壊さずに残し、ぶら下がって走れるようにするか */
     val upsideDownRails = c.getBoolean("track.upside-down-rails", true)
 
+    /** マスコンで出せる最高速度。P7 の目標速度にもなる */
+    val masconMaxSpeed = c.getDouble("mascon.max-speed", 1.5)
+    /** マスコンの表示の、1 ブロック/tick あたりの km/h。MasconCart の表示に合わせて 80 */
+    val masconDisplayKmh = c.getDouble("mascon.display-kmh-per-speed", 80.0)
+    /** マスコンを入れられるのを、先頭か最後尾の車両の運転席だけにするか */
+    val masconDriverSeatOnly = c.getBoolean("mascon.driver-seat-only", false)
+    /** ふつうのトロッコに乗っていて D を押したとき、そのトロッコを列車に置き換えるか */
+    val masconConvertMinecarts = c.getBoolean("mascon.convert-minecarts", true)
+
     val stationDelayTicks = c.getInt("signs.station-default-delay", 100)
     val routeSearchDistance = c.getDouble("route.max-distance", 5000.0)
 

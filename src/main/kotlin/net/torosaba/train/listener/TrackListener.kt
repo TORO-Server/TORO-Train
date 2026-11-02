@@ -94,6 +94,7 @@ class TrackListener(private val plugin: TOROTrain) : Listener {
         data.shape = if (facing == BlockFace.NORTH || facing == BlockFace.SOUTH) Rail.Shape.NORTH_SOUTH else Rail.Shape.EAST_WEST
         // 更新ありで置くと、バニラの処理で隣のレールとつながる形になる (支えがなくて壊れる更新は onPhysics で止める)
         target.setBlockData(data, true)
+        plugin.router.clear()
         if (player.gameMode != GameMode.CREATIVE) item.amount -= 1
         player.swingMainHand()
         target.world.playSound(target.location.add(0.5, 0.5, 0.5), data.soundGroup.placeSound, 1f, 0.8f)

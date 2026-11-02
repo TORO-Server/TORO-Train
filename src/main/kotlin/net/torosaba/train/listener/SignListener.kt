@@ -9,8 +9,10 @@ import net.torosaba.train.signs.Teleport
 import net.torosaba.train.track.TrackBlocks
 import net.torosaba.train.util.BlockKey
 import net.torosaba.train.util.Text
+import org.bukkit.NamespacedKey
 import org.bukkit.Tag
 import org.bukkit.block.Block
+import org.bukkit.block.Sign
 import org.bukkit.block.sign.Side
 import org.bukkit.event.EventHandler
 import org.bukkit.event.EventPriority
@@ -19,6 +21,7 @@ import org.bukkit.event.block.BlockBreakEvent
 import org.bukkit.event.block.BlockPhysicsEvent
 import org.bukkit.event.block.BlockPlaceEvent
 import org.bukkit.event.block.SignChangeEvent
+import org.bukkit.persistence.PersistentDataType
 
 /** 看板を置く・消すときの確認と、レッドストーンの信号で働く看板 */
 class SignListener(private val plugin: TOROTrain) : Listener {
@@ -71,9 +74,16 @@ class SignListener(private val plugin: TOROTrain) : Listener {
     fun onBreak(event: BlockBreakEvent) {
         val block = event.block
         if (Tag.ALL_SIGNS.isTagged(block.type)) {
-            if (ActionSign.parse(block) == null) return
+            val sign = ActionSign.parse(block) ?: return
             plugin.signIndex.invalidateAround(BlockKey.of(block))
-            plugin.signIndex.railFor(block)?.let { plugin.places.removeRail(BlockKey.of(it)) }
+            // 同じ線路のほかの看板の名前は残す
+            plugin.signIndex.railFor(block)?.let { rail ->
+                when (SignTypes.find(sign.type)) {
+                    Station, DestinationSign -> plugin.places.removeDestination(sign.line3, BlockKey.of(rail))
+                    Teleport -> plugin.places.removePortal(sign.line4, BlockKey.of(rail))
+                    else -> {}
+                }
+            }
             lastPower.remove(BlockKey.of(block))
             plugin.router.clear()
         } else if (TrackBlocks.isTrack(block)) {
@@ -92,18 +102,34 @@ class SignListener(private val plugin: TOROTrain) : Listener {
         if (!Tag.ALL_SIGNS.isTagged(block.type)) return
         val sign = ActionSign.parse(block) ?: return
         val type = SignTypes.find(sign.type) ?: return
+        if (!type.reactsToPower) return
         val key = BlockKey.of(block)
         val powered = sign.isPowered()
-        val previous = lastPower.put(key, powered)
+        // 前の信号は看板にも書いておく。再起動のあとに信号が入ったままの看板を見て、入ったと間違えないように
+        val previous = lastPower.put(key, powered) ?: storedPower(block)
         plugin.debug { "看板 ${sign.type} ($key) の信号: $previous → $powered" }
-        if ((previous ?: false) == powered) return
+        if (previous == powered) return
         // 信号の変化は、ブロックの更新が落ち着いてから処理する
         plugin.server.scheduler.runTask(plugin, Runnable {
+            storePower(block, powered)
             try {
                 type.onPower(plugin, sign, powered)
             } catch (e: Exception) {
                 plugin.logger.warning("看板 ${sign.type} ($key) の処理で問題が起きました: ${e.message}")
             }
         })
+    }
+
+    private fun storedPower(block: Block): Boolean =
+        (block.state as? Sign)?.persistentDataContainer?.get(POWER_KEY, PersistentDataType.BOOLEAN) ?: false
+
+    private fun storePower(block: Block, powered: Boolean) {
+        val state = block.state as? Sign ?: return
+        state.persistentDataContainer.set(POWER_KEY, PersistentDataType.BOOLEAN, powered)
+        state.update(false, false)
+    }
+
+    private companion object {
+        val POWER_KEY: NamespacedKey = NamespacedKey.fromString("toro-train:powered")!!
     }
 }

@@ -1,6 +1,7 @@
 package net.torosaba.train.train
 
 import net.torosaba.train.model.CartModel
+import net.torosaba.train.util.Text
 import org.bukkit.configuration.file.YamlConfiguration
 import java.io.File
 
@@ -29,24 +30,31 @@ class SavedTrains(private val file: File) {
         write()
     }
 
-    /** 作った Template をそのまま保存する (TrainCarts から引き継ぐときなど) */
-    fun put(name: String, template: Template) {
-        templates[name.lowercase()] = template
+    /** 作った Template をまとめて保存する (TrainCarts から引き継ぐときなど) */
+    fun putAll(list: Map<String, Template>) {
+        for ((name, template) in list) templates[name.lowercase()] = template
         write()
     }
 
     fun delete(name: String): Boolean = (templates.remove(name.lowercase()) != null).also { if (it) write() }
 
+    /** 文字列の始まりに一致する、いちばん長い保存した列車の名前 */
+    fun matchPrefix(text: String): String? {
+        val lower = text.lowercase()
+        return templates.keys.filter { lower.startsWith(it) }.maxByOrNull { it.length }
+    }
+
     /** そのブロックのモデルを使っている保存した列車があるか */
     fun usesModel(model: String): Boolean =
-        templates.values.any { t -> t.carts.any { it.first.blockModelName.equals(model, true) } }
+        templates.values.any { t -> t.carts.any { it.first.usesBlockModel(model) } }
 
     fun load() {
         templates.clear()
         if (!file.exists()) return
         val yaml = YamlConfiguration.loadConfiguration(file)
-        for (name in yaml.getKeys(false)) {
-            val s = yaml.getConfigurationSection(name) ?: continue
+        for (key in yaml.getKeys(false)) {
+            val s = yaml.getConfigurationSection(key) ?: continue
+            val name = Text.fromYamlKey(key)
             val props = TrainProperties().also { p -> s.getConfigurationSection("properties")?.let { p.load(it) } }
             val carts = s.getConfigurationSection("carts")?.let { c ->
                 c.getKeys(false).sortedBy { it.toIntOrNull() ?: 0 }.mapNotNull { c.getConfigurationSection(it) }.map { cs ->
@@ -60,7 +68,8 @@ class SavedTrains(private val file: File) {
 
     private fun write() {
         val yaml = YamlConfiguration()
-        for ((name, t) in templates) {
+        for ((rawName, t) in templates) {
+            val name = Text.toYamlKey(rawName)
             t.props.save(yaml.createSection("$name.properties"))
             for ((i, pair) in t.carts.withIndex()) {
                 pair.first.save(yaml.createSection("$name.carts.$i.model"))
