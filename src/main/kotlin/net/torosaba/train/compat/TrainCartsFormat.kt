@@ -28,6 +28,7 @@ object TrainCartsFormat {
         val out = ArrayList<Destination>()
         try {
             val count = data.readInt()
+            if (count !in 0..100_000) return out
             for (i in 0 until count) {
                 val names = data.readUTF()
                 val world = data.readUTF()

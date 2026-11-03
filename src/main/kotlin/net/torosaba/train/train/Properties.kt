@@ -131,16 +131,16 @@ object PropertyKeys {
     private fun trainBool(name: String, vararg aliases: String, prop: (TrainProperties) -> kotlin.reflect.KMutableProperty0<Boolean>) =
         Key(name, aliases.toList(), false, { t, _ -> prop(t.props).get().toString() }, { t, _, v -> bool(v)?.let { prop(t.props).set(it); true } ?: false })
 
-    private fun trainDouble(name: String, vararg aliases: String, speed: Boolean = false, prop: (TrainProperties) -> kotlin.reflect.KMutableProperty0<Double>) =
+    private fun trainDouble(name: String, vararg aliases: String, speed: Boolean = false, min: Double = 0.0, max: Double = Double.MAX_VALUE, prop: (TrainProperties) -> kotlin.reflect.KMutableProperty0<Double>) =
         Key(name, aliases.toList(), false, { t, _ -> prop(t.props).get().let { if (speed) "${it} (${Text.speed(it)})" else it.toString() } }, { t, _, v ->
-            (if (speed) Text.parseSpeed(v) else v.toDoubleOrNull())?.takeIf { it >= 0 }?.let { prop(t.props).set(it); true } ?: false
+            (if (speed) Text.parseSpeed(v) else v.toDoubleOrNull())?.takeIf { it.isFinite() && it in min..max }?.let { prop(t.props).set(it); true } ?: false
         })
 
     val keys: List<Key> = listOf(
-        trainDouble("speedlimit", "maxspeed", "speed-limit", speed = true) { it::speedLimit },
-        trainDouble("acceleration", "accel", speed = true) { it::acceleration },
-        trainDouble("deceleration", "decel", "brake", speed = true) { it::deceleration },
-        trainDouble("friction") { it::friction },
+        trainDouble("speedlimit", "maxspeed", "speed-limit", speed = true, min = 0.0, max = 2.0) { it::speedLimit },
+        trainDouble("acceleration", "accel", speed = true, min = 1e-4, max = 1.0) { it::acceleration },
+        trainDouble("deceleration", "decel", "brake", speed = true, min = 1e-4, max = 1.0) { it::deceleration },
+        trainDouble("friction", min = 0.0, max = 1.0) { it::friction },
         // TrainCarts の slowdown: false なら摩擦も坂の重力もなし、true なら既定に戻す。数なら摩擦
         Key("slowdown", emptyList(), false, { t, _ -> "friction=${t.props.friction} gravity=${t.props.gravity}" }, { t, _, v ->
             val b = bool(v)
@@ -148,11 +148,11 @@ object PropertyKeys {
             when {
                 b == false -> { t.props.friction = 0.0; t.props.gravity = false; true }
                 b == true -> { t.props.friction = TrainProperties().friction; t.props.gravity = true; true }
-                number != null && number >= 0 -> { t.props.friction = number; true }
+                number != null && number.isFinite() && number in 0.0..1.0 -> { t.props.friction = number; true }
                 else -> false
             }
         }),
-        trainDouble("waitdistance", "wait-distance", "spacing") { it::waitDistance },
+        trainDouble("waitdistance", "wait-distance", "spacing", min = 0.0, max = 128.0) { it::waitDistance },
         trainBool("gravity") { it::gravity },
         trainBool("coupling", "link") { it::coupling },
         trainBool("keepchunksloaded", "keep-chunks-loaded", "chunks") { it::keepChunksLoaded },

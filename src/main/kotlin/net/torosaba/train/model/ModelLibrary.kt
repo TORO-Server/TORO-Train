@@ -15,12 +15,23 @@ import java.util.logging.Logger
 class ModelLibrary(private val dir: File, private val logger: Logger) {
     private val models = HashMap<String, BlockModel>()
 
+    private fun safeKey(name: String): String? {
+        val key = name.lowercase()
+        if (!key.matches(Regex("^[a-z0-9_.-]+$")) || key.contains("..")) return null
+        val target = File(dir, "$key.nbt").canonicalFile
+        val parent = dir.canonicalFile
+        return if (target.parentFile == parent) key else null
+    }
+
     fun names(): List<String> = dir.listFiles { f -> f.extension == "nbt" }?.map { it.nameWithoutExtension }?.sorted() ?: emptyList()
 
-    fun exists(name: String) = models.containsKey(name.lowercase()) || File(dir, "${name.lowercase()}.nbt").exists()
+    fun exists(name: String): Boolean {
+        val key = safeKey(name) ?: return false
+        return models.containsKey(key) || File(dir, "$key.nbt").exists()
+    }
 
     fun get(name: String): BlockModel? {
-        val key = name.lowercase()
+        val key = safeKey(name) ?: return null
         models[key]?.let { return it }
         val nbt = File(dir, "$key.nbt")
         if (!nbt.exists()) return null
@@ -40,7 +51,7 @@ class ModelLibrary(private val dir: File, private val logger: Logger) {
     }
 
     fun save(name: String, structure: Structure, origin: Vector3d, rotation: Quaternionf): BlockModel {
-        val key = name.lowercase()
+        val key = safeKey(name) ?: throw IllegalArgumentException("無効なモデル名です: $name")
         dir.mkdirs()
         Bukkit.getStructureManager().saveStructure(File(dir, "$key.nbt"), structure)
         val yaml = YamlConfiguration()
@@ -60,7 +71,7 @@ class ModelLibrary(private val dir: File, private val logger: Logger) {
      * WorldEdit のスケマティックからモデルを作る。原点は TrainCarts と同じく、横と前後は中央、高さはいちばん下にする
      */
     fun importSchematic(name: String, schem: File): BlockModel? {
-        val key = name.lowercase()
+        val key = safeKey(name) ?: return null
         dir.mkdirs()
         val result = SchematicConverter.convert(schem, File(dir, "$key.nbt"))
         val yaml = YamlConfiguration()
@@ -76,7 +87,7 @@ class ModelLibrary(private val dir: File, private val logger: Logger) {
     }
 
     fun delete(name: String): Boolean {
-        val key = name.lowercase()
+        val key = safeKey(name) ?: return false
         models.remove(key)
         val deleted = File(dir, "$key.nbt").delete()
         File(dir, "$key.yml").delete()

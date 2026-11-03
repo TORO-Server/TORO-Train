@@ -36,36 +36,55 @@ object Nbt {
         val type = data.readByte().toInt()
         require(type == COMPOUND) { "NBT の始まりが compound ではありません ($type)" }
         val name = data.readUTF()
-        return name to readPayload(data, COMPOUND) as NbtCompound
+        return name to readPayload(data, COMPOUND, 0) as NbtCompound
     }
 
-    private fun readPayload(data: DataInputStream, type: Int): Any = when (type) {
-        BYTE -> data.readByte()
-        SHORT -> data.readShort()
-        INT -> data.readInt()
-        LONG -> data.readLong()
-        FLOAT -> data.readFloat()
-        DOUBLE -> data.readDouble()
-        BYTE_ARRAY -> ByteArray(data.readInt()).also { data.readFully(it) }
-        STRING -> data.readUTF()
-        LIST -> {
-            val elementType = data.readByte().toInt()
-            val size = data.readInt()
-            NbtList(elementType, MutableList(size) { readPayload(data, elementType) })
-        }
-        COMPOUND -> {
-            val map = NbtCompound()
-            while (true) {
-                val t = data.readByte().toInt()
-                if (t == END) break
-                val key = data.readUTF()
-                map[key] = readPayload(data, t)
+    private const val MAX_DEPTH = 512
+    private const val MAX_ARRAY_SIZE = 16 * 1024 * 1024
+
+    private fun readPayload(data: DataInputStream, type: Int, depth: Int): Any {
+        require(depth <= MAX_DEPTH) { "NBT のネストが深すぎます ($depth > $MAX_DEPTH)" }
+        return when (type) {
+            BYTE -> data.readByte()
+            SHORT -> data.readShort()
+            INT -> data.readInt()
+            LONG -> data.readLong()
+            FLOAT -> data.readFloat()
+            DOUBLE -> data.readDouble()
+            BYTE_ARRAY -> {
+                val size = data.readInt()
+                require(size in 0..MAX_ARRAY_SIZE) { "BYTE_ARRAY のサイズが不正です ($size)" }
+                ByteArray(size).also { data.readFully(it) }
             }
-            map
+            STRING -> data.readUTF()
+            LIST -> {
+                val elementType = data.readByte().toInt()
+                val size = data.readInt()
+                require(size in 0..MAX_ARRAY_SIZE) { "LIST のサイズが不正です ($size)" }
+                NbtList(elementType, MutableList(size) { readPayload(data, elementType, depth + 1) })
+            }
+            COMPOUND -> {
+                val map = NbtCompound()
+                while (true) {
+                    val t = data.readByte().toInt()
+                    if (t == END) break
+                    val key = data.readUTF()
+                    map[key] = readPayload(data, t, depth + 1)
+                }
+                map
+            }
+            INT_ARRAY -> {
+                val size = data.readInt()
+                require(size in 0..MAX_ARRAY_SIZE) { "INT_ARRAY のサイズが不正です ($size)" }
+                IntArray(size) { data.readInt() }
+            }
+            LONG_ARRAY -> {
+                val size = data.readInt()
+                require(size in 0..MAX_ARRAY_SIZE) { "LONG_ARRAY のサイズが不正です ($size)" }
+                LongArray(size) { data.readLong() }
+            }
+            else -> throw IllegalArgumentException("知らない NBT の型 $type")
         }
-        INT_ARRAY -> IntArray(data.readInt()) { data.readInt() }
-        LONG_ARRAY -> LongArray(data.readInt()) { data.readLong() }
-        else -> throw IllegalArgumentException("知らない NBT の型 $type")
     }
 
     /** gzip で圧縮した NBT ファイルに書く */
