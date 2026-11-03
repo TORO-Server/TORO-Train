@@ -92,10 +92,12 @@ object SchematicConverter {
             var value = 0
             var shift = 0
             while (true) {
+                if (offset >= data.size) break
                 val b = data[offset++].toInt()
                 value = value or ((b and 0x7F) shl shift)
                 if (b and 0x80 == 0) break
                 shift += 7
+                if (shift > 28) throw java.io.IOException("VarInt too long")
             }
             output.add(index, names[value] ?: "minecraft:air", entityAt[index])
             index++

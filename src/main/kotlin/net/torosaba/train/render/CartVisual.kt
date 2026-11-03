@@ -131,7 +131,7 @@ class CartVisual(private val plugin: TOROTrain, val cart: Cart) {
         val length = cart.model.length(lib).toFloat()
         val width = cart.model.width(lib).toFloat().coerceIn(0.5f, 4f)
         val height = cart.model.height(lib).toFloat().coerceIn(0.5f, 8f)
-        val count = max(1, ceil(length / width).toInt())
+        val count = max(1, ceil(length / width).toInt()).coerceIn(1, 64)
         for (i in 0 until count) {
             val z = -length / 2 + width / 2 + if (count > 1) (length - width) * i / (count - 1) else (length - width) / 2
             val hitLoc = location(world, hitboxPosition(z))

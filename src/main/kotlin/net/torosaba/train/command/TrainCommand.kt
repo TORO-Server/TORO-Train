@@ -89,6 +89,7 @@ class TrainCommand(private val plugin: TOROTrain) : TabExecutor {
             "create" -> create(sender, rest)
             "spawn" -> spawn(sender, rest)
             "save" -> {
+                need(sender, "torotrain.admin")
                 val name = rest.firstOrNull() ?: fail("/tt save <名前>")
                 plugin.saved.save(name, owned(sender))
                 msg(sender, "&a列車を「$name」として保存しました")
@@ -115,8 +116,13 @@ class TrainCommand(private val plugin: TOROTrain) : TabExecutor {
             }
             "launch" -> {
                 val t = owned(sender)
-                val speed = speedArg(rest.firstOrNull())
-                t.action = LaunchAction(speed, rest.getOrNull(1)?.let { Text.parseSpeed(it) })
+                val rawSpeed = speedArg(rest.firstOrNull())
+                val speed = if (rawSpeed.isFinite()) rawSpeed.coerceIn(0.0, plugin.settings.maxSpeed) else fail("速さが不正です")
+                val resumeSpeed = rest.getOrNull(1)?.let {
+                    val s = Text.parseSpeed(it)
+                    if (s != null && s.isFinite()) s.coerceIn(0.0, plugin.settings.maxSpeed) else null
+                }
+                t.action = LaunchAction(speed, resumeSpeed)
                 msg(sender, "&a${Text.speed(speed)} まで加速します")
             }
             "stop" -> {
@@ -304,6 +310,7 @@ class TrainCommand(private val plugin: TOROTrain) : TabExecutor {
 
     private fun saved(sender: CommandSender, args: List<String>) {
         if (args.firstOrNull()?.equals("delete", true) == true) {
+            need(sender, "torotrain.admin")
             val name = args.getOrNull(1) ?: fail("/tt saved delete <名前>")
             if (!plugin.saved.delete(name)) fail("保存した列車 $name はありません")
             msg(sender, "&a「$name」を消しました")
@@ -368,6 +375,9 @@ class TrainCommand(private val plugin: TOROTrain) : TabExecutor {
             msg(sender, "${key.name} = ${key.get(t, cart)}")
             return
         }
+        if (key.name.equals("keepchunksloaded", ignoreCase = true) && !sender.hasPermission("torotrain.admin")) {
+            fail("keepchunksloaded の変更には torotrain.admin 権限が必要です")
+        }
         if (!key.set(t, cart, args.drop(1).joinToString(" "))) fail("値「${args.drop(1).joinToString(" ")}」は使えません")
         msg(sender, "&a${key.name} を ${key.get(t, cart)} にしました")
     }
@@ -429,11 +439,13 @@ class TrainCommand(private val plugin: TOROTrain) : TabExecutor {
             }
             "item" -> {
                 val item = player(sender).inventory.itemInMainHand.takeUnless { it.type.isAir } ?: fail("アイテムを手に持ってください")
-                val scale = args.getOrNull(1)?.toFloatOrNull() ?: 1f
+                val scale = args.getOrNull(1)?.toFloatOrNull()?.takeIf { it.isFinite() && it in 0.05f..16f }
+                    ?: (if (args.size <= 1) 1f else fail("/tt model item <倍率 (0.05〜16)>"))
                 c.model = ItemCartModel(ItemStack(item).asOne(), scale)
             }
             "yaw" -> {
-                val yaw = args.getOrNull(1)?.toFloatOrNull() ?: fail("/tt model yaw <度>")
+                val rawYaw = args.getOrNull(1)?.toFloatOrNull()?.takeIf { it.isFinite() } ?: fail("/tt model yaw <度>")
+                val yaw = ((rawYaw % 360f) + 360f) % 360f
                 c.model = when (current) {
                     is BlockCartModel -> BlockCartModel(current.name, current.offset, yaw, current.lengthOverride, current.extraRotation, current.scale, current.fixedSeats, current.wheelDistance)
                     is ItemCartModel -> ItemCartModel(current.item, current.scale, current.offset, yaw, current.length, current.width, current.height)
@@ -441,7 +453,8 @@ class TrainCommand(private val plugin: TOROTrain) : TabExecutor {
                 }
             }
             "offset" -> {
-                val v = args.drop(1).mapNotNull { it.toFloatOrNull() }.takeIf { it.size == 3 } ?: fail("/tt model offset <x> <y> <z>")
+                val v = args.drop(1).mapNotNull { it.toFloatOrNull()?.takeIf { f -> f.isFinite() && f in -32f..32f } }.takeIf { it.size == 3 }
+                    ?: fail("/tt model offset <x (-32〜32)> <y (-32〜32)> <z (-32〜32)>")
                 val offset = Vector3f(v[0], v[1], v[2])
                 c.model = when (current) {
                     is BlockCartModel -> BlockCartModel(current.name, offset, current.yaw, current.lengthOverride, current.extraRotation, current.scale, current.fixedSeats, current.wheelDistance)
@@ -450,7 +463,7 @@ class TrainCommand(private val plugin: TOROTrain) : TabExecutor {
                 }
             }
             "length" -> {
-                val length = args.getOrNull(1)?.toDoubleOrNull()?.takeIf { it > 0.1 } ?: fail("/tt model length <長さ>")
+                val length = args.getOrNull(1)?.toDoubleOrNull()?.takeIf { it.isFinite() && it in 0.5..64.0 } ?: fail("/tt model length <長さ (0.5〜64.0)>")
                 c.model = when (current) {
                     is BlockCartModel -> BlockCartModel(current.name, current.offset, current.yaw, length, current.extraRotation, current.scale, current.fixedSeats, current.wheelDistance)
                     is ItemCartModel -> ItemCartModel(current.item, current.scale, current.offset, current.yaw, length, current.width, current.height)

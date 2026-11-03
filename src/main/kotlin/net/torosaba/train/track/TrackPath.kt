@@ -57,7 +57,8 @@ class TrackPath(val world: World) {
     fun advance(dist: Double, next: (DirectedSegment) -> Next): Pair<Double, Next?> {
         var left = dist
         var moved = 0.0
-        while (left > 1e-9) {
+        var steps = 0
+        while (left > 1e-9 && steps++ < 4096) {
             val seg = head
             val room = seg.length - headOffset
             if (left <= room) {
@@ -136,7 +137,8 @@ class TrackPath(val world: World) {
         var seg = head
         var start = -headOffset
         if (!visit(seg, start)) return null
-        while (start + seg.length < maxDist) {
+        var steps = 0
+        while (start + seg.length < maxDist && steps++ < 4096) {
             start += seg.length
             seg = when (val n = next(seg)) {
                 is Next.Found -> n.segment
