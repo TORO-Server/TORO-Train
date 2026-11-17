@@ -1,16 +1,15 @@
 # TORO-Train の作業の手引き
 
-AI エージェントと開発者向けです。遊び方と設定は [README.md](README.md) にあります。
+AI エージェントと開発者向けです。遊び方と設定は [docs/manual.md](docs/manual.md) にあります。
 
 TORO-Train は Display エンティティで描く列車の Paper プラグイン (Kotlin) です。TrainCarts の代わりで、TrainCarts のデータと看板、MasconCart の操作を引き継ぎます。バニラのトロッコは使いません。
 
 - Paper 26.3 / Java 25 / Kotlin
-- リモート: `TORO-Server/TORO-Train` (非公開)
 
 ## コマンド
 
 ```bash
-./gradlew build                  # ビルドとユニットテスト。build/libs/TORO-Train-<版>.jar ができる
+./gradlew build                  # ビルドとユニットテスト。build/libs/TORO-Train-<バージョン>.jar ができる
 ./gradlew test                   # ユニットテストだけ
 python tools/verify/smoke.py     # 本物の Paper で確認 (どの OS でも、画面なしでも動く。1 分くらい)
 python tools/verify/e2e.py       # 本物のクライアントをつないで確認 (Windows のみ。5 分くらい)
@@ -70,14 +69,14 @@ python tools/verify/e2e.py       # 本物のクライアントをつないで確
 
 ## 決まり
 
-- **言葉**: コメント、メッセージ、README、コミットは日本語です。専門用語を避けた、やさしい言葉で書きます (「分岐器」「車両」「線路の外」など、すでにある言葉に合わせます)。周りのコードと同じくらいの量のコメントにします。
+- **言葉**: コメント、メッセージ、文書、コミットは日本語です。専門用語を避けた、やさしい言葉で書きます (「分岐器」「車両」「線路の外」など、すでにある言葉に合わせます)。周りのコードと同じくらいの量のコメントにします。
 - **TrainCarts のコードは写しません**。保存形式と数値を確かめるために読むだけです。MasconCart の数値は `MasconProfile` と `MasconProfileTest` に合わせてあります。
 - **ファイルの改行は LF** です (`.bat` を除く。`.gitattributes` のとおり)。
 - **一緒に更新するもの**:
-  - コマンド: `TrainCommand` の処理、`help`、タブ補完、README
-  - 設定: `Settings.kt`、`config.yml`、README
-  - 列車の設定: `TrainProperties` の `save` / `load`、`PropertyKeys`、README
-  - 看板: `SignTypes.all`、README の表、`plugin.yml` の権限。マスコン中も働くなら `ignoredInMascon`
+  - コマンド: `TrainCommand` の処理、`help`、タブ補完、`docs/manual.md`
+  - 設定: `Settings.kt`、`config.yml`、`docs/manual.md`
+  - 列車の設定: `TrainProperties` の `save` / `load`、`PropertyKeys`、`docs/manual.md`
+  - 看板: `SignTypes.all`、`docs/manual.md` の表、`plugin.yml` の権限。マスコン中も働くなら `ignoredInMascon`
   - 車体のモデル: `CartModel` は sealed なので、`save`、`CartModel.load`、`TrainCommand` の `when`、モデルを使っているかの `usesBlockModel`
 - **保存したデータは読めるままにします**。`trains.yml`、`saved-trains.yml`、`names.yml`、`traincarts-import.yml` の古い形式を読めなくしないでください。名前を YAML のキーにするときは `Text.toYamlKey` を通します (Bukkit は `.` を階層の区切りとして読むため)。TrainCarts の読み方を増やしたら `TrainCartsImport.FORMAT` を上げます。
 - **テストしやすく**: Bukkit なしで動く計算は `object` に分けて `src/test` でテストします。
@@ -115,7 +114,7 @@ python tools/verify/e2e.py       # 本物のクライアントをつないで確
 - **遠くの行き先**: 読み込まれていないチャンクの先は、経路探索で行き止まりになります (`TrackGraph.routeCandidates`)。チャンクを読み込むと重くなり、行き先のつながりを別に保存するのは大きな変更になるので、まだ直していません。
 - **本番の TrainCarts データでは未確認です**。`smoke.py` の見本はソースに合わせて作ったものです。読み方を変えるときは [TrainCarts のソース](https://github.com/bergerhealer/TrainCarts) を確かめてください。すでに引き継いだサーバーは `/tt import traincarts` で読み直しますが、同じ名前の保存した列車を上書きします。
 - **`e2e.py` で確かめていないもの**: マスコン中の線路外走行と `teleport` の看板、カーブや坂の高速走行、`driver-seat-only: true`、`convert-minecarts: false`。
-- TrainCarts の機能でまだないものは README の「まだないもの」にあります。
+- TrainCarts の機能で対応していないものは `docs/manual.md` の「対応していないもの」にあります。
 
 ## 参考
 
