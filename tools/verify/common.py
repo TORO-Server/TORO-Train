@@ -345,7 +345,7 @@ MODULE_MODEL = """moduleroof:
 LIVE_TRAINS = """train9:
   speedLimit: 0.5
   carts:
-    61dfd820-3086-4169-a457-07fc1d4d420a:
+    00000000-0000-0000-0000-000000000003:
       owners:
       - nobodyknown
       model:
